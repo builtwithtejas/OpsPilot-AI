@@ -45,19 +45,18 @@ app = FastAPI(
 )
 
 # ── CORS Configuration ────────────────────────────────────────────
-origins = [
-    "http://localhost:3000",
-    "https://ops-pilot-ctpi4iwwf-tejas-projects10.vercel.app",
-]
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=[
+        "http://localhost:3000",
+        "https://ops-pilot-ai-five.vercel.app",
+        "https://ops-pilot-ctpi4iwwf-tejas-projects10.vercel.app",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
-
 # ── Rate limiting ─────────────────────────────────────────────────
 app.state.limiter = limiter
 app.add_exception_handler(
