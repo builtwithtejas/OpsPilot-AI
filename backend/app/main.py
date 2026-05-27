@@ -2,17 +2,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "https://ops-pilot-dt3wa55yq-tejas-projects10.vercel.app",
-        "http://localhost:3000",
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 from fastapi.responses import Response
+
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
@@ -28,7 +19,10 @@ from app.models import incident, deployment, audit_log  # noqa: F401
 from app.utils.logger import logger
 
 # ── Rate limiter ──────────────────────────────────────────────────
-limiter = Limiter(key_func=get_remote_address, default_limits=["200/minute"])
+limiter = Limiter(
+    key_func=get_remote_address,
+    default_limits=["200/minute"]
+)
 
 
 @asynccontextmanager
@@ -40,6 +34,7 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down %s", settings.APP_NAME)
 
 
+# ── FastAPI App ───────────────────────────────────────────────────
 app = FastAPI(
     title=settings.APP_NAME,
     description="AI-Powered DevOps Incident Intelligence — Powered by Google Gemini & GitLab MCP",
@@ -49,21 +44,32 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
-# ── Rate limiting ─────────────────────────────────────────────────
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+# ── CORS Configuration ────────────────────────────────────────────
+origins = [
+    "http://localhost:3000",
+    "https://ops-pilot-ctpi4iwwf-tejas-projects10.vercel.app",
+]
 
-# ── CORS ──────────────────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.allowed_origins_list,
+    allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PATCH", "DELETE"],
-    allow_headers=["Authorization", "Content-Type", "X-API-Key"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ── Rate limiting ─────────────────────────────────────────────────
+app.state.limiter = limiter
+app.add_exception_handler(
+    RateLimitExceeded,
+    _rate_limit_exceeded_handler
 )
 
 # ── Global error handler ──────────────────────────────────────────
-app.add_exception_handler(Exception, unhandled_exception_handler)
+app.add_exception_handler(
+    Exception,
+    unhandled_exception_handler
+)
 
 # ── Routes ────────────────────────────────────────────────────────
 app.include_router(api_router)
