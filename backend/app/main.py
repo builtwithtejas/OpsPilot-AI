@@ -47,11 +47,7 @@ app = FastAPI(
 # ── CORS Configuration ────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "https://ops-pilot-ai-five.vercel.app",
-        "https://ops-pilot-ctpi4iwwf-tejas-projects10.vercel.app",
-    ],
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
