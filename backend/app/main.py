@@ -1,13 +1,12 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
-from tenacity import RetryError
 
 from app.api.router import api_router
 from app.core.config import settings
@@ -25,12 +24,16 @@ limiter = Limiter(
 )
 
 
+# ── App lifespan ──────────────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting %s v%s", settings.APP_NAME, settings.APP_VERSION)
+
     Base.metadata.create_all(bind=engine)
     logger.info("Database tables created/verified")
+
     yield
+
     logger.info("Shutting down %s", settings.APP_NAME)
 
 
@@ -44,21 +47,30 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
+
 # ── CORS Configuration ────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ],
     allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["*"],
 )
+
+
 # ── Rate limiting ─────────────────────────────────────────────────
 app.state.limiter = limiter
+
 app.add_exception_handler(
     RateLimitExceeded,
     _rate_limit_exceeded_handler
 )
+
 
 # ── Global error handler ──────────────────────────────────────────
 app.add_exception_handler(
@@ -66,10 +78,12 @@ app.add_exception_handler(
     unhandled_exception_handler
 )
 
+
 # ── Routes ────────────────────────────────────────────────────────
 app.include_router(api_router)
 
 
+# ── Root Endpoint ─────────────────────────────────────────────────
 @app.get("/", tags=["Root"])
 def root():
     return {
@@ -81,6 +95,15 @@ def root():
     }
 
 
+# ── Favicon ───────────────────────────────────────────────────────
 @app.get("/favicon.ico", include_in_schema=False)
 async def favicon():
     return Response(status_code=204)
+
+
+# ── Health Check ──────────────────────────────────────────────────
+@app.get("/health")
+async def health():
+    return {
+        "status": "healthy"
+    }
