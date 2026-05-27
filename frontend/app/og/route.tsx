@@ -22,7 +22,7 @@ export function GET() {
   <rect x="80" y="390" width="180" height="48" rx="12" fill="#33ff8820" stroke="#33ff88" stroke-width="1.5"/>
   <text x="170" y="421" text-anchor="middle" font-family="Arial" font-weight="700" font-size="18" fill="#33ff88">● LIVE</text>
   <rect x="280" y="390" width="220" height="48" rx="12" fill="#00c3ff20" stroke="#00c3ff" stroke-width="1.5"/>
-  <text x="390" y="421" text-anchor="middle" font-family="Arial" font-weight="700" font-size="18" fill="#00c3ff">GROQ ACTIVE</text>
+ <text x="390" y="421" text-anchor="middle" font-family="Arial" font-weight="700" font-size="18" fill="#4285F4">GEMINI ACTIVE</text>
 </svg>`;
   return new NextResponse(svg, {
     headers: { "Content-Type": "image/svg+xml", "Cache-Control": "public, max-age=86400" },

@@ -61,7 +61,7 @@ export default function Home() {
         <HealthCard title="API Status"      value={`● ${error ? "Offline" : "Operational"}`}       color={apiColor} />
         <HealthCard title="Backend Latency" value={latency ? `${latency} ms` : "—"}                  color="#00c3ff" />
         <HealthCard title="Total Runs"      value={analytics ? String(analytics.stats.total) : "—"} color="#ffb347" />
-        <HealthCard title="AI Engine"       value="GROQ ACTIVE"                                      color="#ff7a00" />
+   <HealthCard title="AI Engine" value="GEMINI ACTIVE" color="#4285F4" />
       </div>
 
       {/* System metrics */}
