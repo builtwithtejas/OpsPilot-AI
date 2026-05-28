@@ -1,6 +1,6 @@
 "use client";
 
-import { Bell, Search, X, CheckCheck, Command } from "lucide-react";
+import { Bell, Search, X, CheckCheck } from "lucide-react";
 import { useRef, useEffect, type KeyboardEvent } from "react";
 import type { Notification } from "@/types";
 import { severityColor, timeAgo } from "@/utils/formatters";
@@ -32,9 +32,15 @@ export default function Navbar({ searchQuery = "", onSearchChange, notifications
   }
 
   return (
-    <div style={{ width: "100%", padding: "16px 24px", borderRadius: "20px", background: "var(--card-bg)", border: "1px solid var(--border)", backdropFilter: "blur(20px)", display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "30px" }}>
+    <div style={{
+      width: "100%", padding: "16px 24px", borderRadius: "20px",
+      background: "var(--card-bg)", border: "1px solid var(--border)",
+      backdropFilter: "blur(20px)", display: "flex", justifyContent: "space-between",
+      alignItems: "center", marginBottom: "30px",
+      position: "relative", zIndex: 100,
+    }}>
 
-      {/* Search bar — clicking it opens command palette */}
+      {/* Search bar */}
       <div onClick={onOpenPalette} style={{ display: "flex", alignItems: "center", gap: "10px", background: "var(--input-bg)", border: "1px solid var(--border)", borderRadius: "12px", padding: "10px 14px", width: "320px", cursor: "pointer" }}>
         <Search size={16} color="var(--text-tertiary)" />
         <input value={searchQuery} onChange={e => onSearchChange?.(e.target.value)} onKeyDown={handleKey}
@@ -51,7 +57,7 @@ export default function Navbar({ searchQuery = "", onSearchChange, notifications
         <div className="live-pulse" style={{ padding: "8px 14px", borderRadius: "10px", background: "rgba(0,255,170,0.08)", border: "1px solid rgba(0,255,170,0.2)", color: "#33ff88", fontWeight: 700, fontSize: "13px" }}>● LIVE</div>
 
         {/* Notifications */}
-        <div ref={dropRef} style={{ position: "relative" }}>
+        <div ref={dropRef} style={{ position: "relative", zIndex: 200 }}>
           <button onClick={() => setNotifOpen?.(!notifOpen)} style={{ width: "42px", height: "42px", borderRadius: "12px", background: "var(--input-bg)", border: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", position: "relative" }}>
             <Bell size={18} color="var(--text-primary)" />
             {unreadCount > 0 && (
@@ -62,10 +68,26 @@ export default function Navbar({ searchQuery = "", onSearchChange, notifications
           </button>
 
           {notifOpen && (
-            <div style={{ position: "absolute", top: "52px", right: 0, width: "360px", background: "var(--card-bg)", border: "1px solid var(--border)", borderRadius: "16px", backdropFilter: "blur(20px)", boxShadow: "0 20px 60px rgba(0,0,0,0.5)", zIndex: 1000, overflow: "hidden" }}>
+            <div style={{
+              position: "absolute",   /* ← was "relative", now "absolute" — this is the fix */
+              top: "52px",
+              right: 0,
+              width: "360px",
+              background: "var(--card-bg)",
+              border: "1px solid var(--border)",
+              borderRadius: "16px",
+              backdropFilter: "blur(20px)",
+              boxShadow: "0 20px 60px rgba(0,0,0,0.6)",
+              zIndex: 9999,
+              overflow: "hidden",
+            }}>
               <div style={{ padding: "16px 18px", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <span style={{ fontWeight: 700, fontSize: "15px" }}>Notifications</span>
-                {unreadCount > 0 && <button onClick={markAllRead} style={{ background: "none", border: "none", color: "#33ff88", cursor: "pointer", fontSize: "13px", display: "flex", alignItems: "center", gap: "4px" }}><CheckCheck size={14} /> Mark all read</button>}
+                {unreadCount > 0 && (
+                  <button onClick={markAllRead} style={{ background: "none", border: "none", color: "#33ff88", cursor: "pointer", fontSize: "13px", display: "flex", alignItems: "center", gap: "4px" }}>
+                    <CheckCheck size={14} /> Mark all read
+                  </button>
+                )}
               </div>
               <div style={{ maxHeight: "380px", overflowY: "auto" }}>
                 {notifications.length === 0
