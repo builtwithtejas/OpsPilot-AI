@@ -28,9 +28,12 @@ Schema:
 
 @lru_cache(maxsize=1)
 def _get_model():
-    genai.configure(api_key=settings.GEMINI_API_KEY)
+    genai.configure(
+        api_key=settings.GEMINI_API_KEY,
+        client_options={"api_endpoint": "generativelanguage.googleapis.com"}
+    )
     return genai.GenerativeModel(
-        model_name="gemini-2.0-flash",
+        model_name="gemini-2.0-flash-lite",
         system_instruction=_SYSTEM_PROMPT,
         generation_config=genai.GenerationConfig(
             temperature=0.2,
@@ -39,7 +42,7 @@ def _get_model():
     )
 
 
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
+@retry(stop=stop_after_attempt(2), wait=wait_exponential(multiplier=1, min=1, max=4))
 def analyze_logs(logs: str) -> dict:
     """Call Gemini and return structured incident analysis."""
     try:

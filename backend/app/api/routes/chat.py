@@ -48,7 +48,7 @@ Always stay focused on this incident and DevOps topics."""
 
     genai.configure(api_key=settings.GEMINI_API_KEY)
     model = genai.GenerativeModel(
-        model_name="gemini-2.0-flash",
+        model_name="gemini-2.0-flash-lite",
         system_instruction=system_prompt,
         generation_config=genai.GenerationConfig(temperature=0.3, max_output_tokens=800),
     )
