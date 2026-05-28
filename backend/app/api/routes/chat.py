@@ -5,8 +5,6 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-import google.generativeai as genai
-
 from app.core.config import settings
 from app.core.security import require_api_key
 from app.database.dependencies import get_db
@@ -17,7 +15,7 @@ router = APIRouter(prefix="/chat", tags=["Chat"], dependencies=[Depends(require_
 
 
 class ChatMessage(BaseModel):
-    role: str       # "user" | "assistant" (mapped to "model" for Gemini)
+    role: str
     content: str
 
 
@@ -26,52 +24,47 @@ class ChatRequest(BaseModel):
     messages: list[ChatMessage]
 
 
-@router.post("/stream", summary="Gemini-powered streaming AI chat about an incident")
+@router.post("/stream", summary="AI chat about an incident — streams token by token")
 async def chat_stream(request: ChatRequest, db: Session = Depends(get_db)):
     incident = get_incident_by_id(db, request.incident_id)
     if not incident:
         raise HTTPException(status_code=404, detail="Incident not found.")
 
-    system_prompt = f"""You are OpsPilot AI, an expert DevOps engineer powered by Google Gemini.
-You are helping investigate the following CI/CD incident:
+    system_prompt = f"""You are OpsPilot AI, an expert DevOps engineer helping investigate a CI/CD incident.
 
+Incident context:
 - ID: #{incident.id}
 - Title: {incident.title}
 - Severity: {incident.severity}
 - Status: {incident.status}
 - Description: {incident.description}
-- Remediation: {incident.remediation}
+- Remediation steps: {incident.remediation}
 - Confidence: {incident.confidence}%
 
-Answer questions concisely and technically. Suggest commands, fixes, and next steps.
-Always stay focused on this incident and DevOps topics."""
+Answer questions about this incident concisely and technically. Suggest commands, fixes, and next steps."""
 
-    genai.configure(api_key=settings.GEMINI_API_KEY)
-    model = genai.GenerativeModel(
-        model_name="gemini-2.0-flash-lite",
-        system_instruction=system_prompt,
-        generation_config=genai.GenerationConfig(temperature=0.3, max_output_tokens=800),
-    )
+    from groq import Groq
+    client = Groq(api_key=settings.GROQ_API_KEY)
 
-    # Build history in Gemini format (role must be "user" or "model")
-    history = []
-    for msg in request.messages[:-1]:   # all but last
-        history.append({
-            "role": "model" if msg.role == "assistant" else "user",
-            "parts": [msg.content],
-        })
-
-    last_user_msg = request.messages[-1].content if request.messages else ""
+    messages = [{"role": "system", "content": system_prompt}]
+    for msg in request.messages:
+        messages.append({"role": msg.role, "content": msg.content})
 
     async def token_generator():
         try:
-            chat = model.start_chat(history=history)
-            response = chat.send_message(last_user_msg, stream=True)
-            for chunk in response:
-                if chunk.text:
-                    yield chunk.text
+            stream = client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=messages,
+                temperature=0.3,
+                max_tokens=800,
+                stream=True,
+            )
+            for chunk in stream:
+                delta = chunk.choices[0].delta.content
+                if delta:
+                    yield delta
         except Exception as exc:
-            logger.error("Gemini chat stream error: %s", exc)
+            logger.error("Chat stream error: %s", exc)
             yield f"\n\n[Error: {str(exc)}]"
 
     return StreamingResponse(token_generator(), media_type="text/plain")

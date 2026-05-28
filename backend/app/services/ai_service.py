@@ -4,11 +4,12 @@ import json
 import re
 from functools import lru_cache
 
-import google.generativeai as genai
+from groq import Groq, GroqError
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from app.core.config import settings
 from app.utils.logger import logger
+
 
 _SYSTEM_PROMPT = """
 You are an elite DevOps AI engineer specializing in CI/CD incident response.
@@ -27,30 +28,25 @@ Schema:
 
 
 @lru_cache(maxsize=1)
-def _get_model():
-    genai.configure(
-        api_key=settings.GEMINI_API_KEY,
-        client_options={"api_endpoint": "generativelanguage.googleapis.com"}
-    )
-    return genai.GenerativeModel(
-        model_name="gemini-2.0-flash-lite",
-        system_instruction=_SYSTEM_PROMPT,
-        generation_config=genai.GenerationConfig(
-            temperature=0.2,
-            max_output_tokens=800,
-        ),
-    )
+def _get_client() -> Groq:
+    return Groq(api_key=settings.GROQ_API_KEY)
 
 
 @retry(stop=stop_after_attempt(2), wait=wait_exponential(multiplier=1, min=1, max=4))
 def analyze_logs(logs: str) -> dict:
-    """Call Gemini and return structured incident analysis."""
     try:
-        model = _get_model()
-        response = model.generate_content(f"Logs:\n\n{logs}")
-        raw = response.text.strip()
+        client = _get_client()
+        completion = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {"role": "system", "content": _SYSTEM_PROMPT},
+                {"role": "user", "content": f"Logs:\n\n{logs}"},
+            ],
+            temperature=0.2,
+            max_tokens=600,
+        )
 
-        # Strip accidental markdown fences
+        raw = completion.choices[0].message.content.strip()
         raw = re.sub(r"^```(?:json)?\s*", "", raw)
         raw = re.sub(r"\s*```$", "", raw)
 
@@ -62,11 +58,11 @@ def analyze_logs(logs: str) -> dict:
             "root_cause":  str(parsed.get("root_cause", "Unknown")),
             "remediation": str(parsed.get("remediation", "No remediation steps provided")),
             "confidence":  _clamp(parsed.get("confidence", 50)),
-            "model":       "gemini-1.5-flash",
+            "model":       "llama-3.3-70b-versatile (Groq)",
         }
 
-    except (json.JSONDecodeError, Exception) as exc:
-        logger.error("Gemini analysis failed: %s", exc)
+    except (GroqError, json.JSONDecodeError) as exc:
+        logger.error("AI analysis failed: %s", exc)
         raise
 
 
