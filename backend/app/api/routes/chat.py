@@ -5,6 +5,8 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+import google.generativeai as genai
+
 from app.core.config import settings
 from app.core.security import require_api_key
 from app.database.dependencies import get_db
@@ -38,31 +40,35 @@ Incident context:
 - Severity: {incident.severity}
 - Status: {incident.status}
 - Description: {incident.description}
-- Remediation steps: {incident.remediation}
-- Confidence: {incident.confidence}%
+- Remediation: {incident.remediation}
+- AI Confidence: {incident.confidence}%
 
-Answer questions about this incident concisely and technically. Suggest commands, fixes, and next steps."""
+Answer questions concisely and technically. Suggest exact commands and fixes."""
 
-    from groq import Groq
-    client = Groq(api_key=settings.GROQ_API_KEY)
+    genai.configure(api_key=settings.GEMINI_API_KEY)
+    model = genai.GenerativeModel(
+        model_name="gemini-2.0-flash-lite",
+        system_instruction=system_prompt,
+        generation_config=genai.GenerationConfig(temperature=0.3, max_output_tokens=800),
+    )
 
-    messages = [{"role": "system", "content": system_prompt}]
-    for msg in request.messages:
-        messages.append({"role": msg.role, "content": msg.content})
+    # Build conversation history for Gemini
+    history = []
+    messages = list(request.messages)
+    # Last message is the new user query — rest is history
+    for msg in messages[:-1]:
+        role = "user" if msg.role == "user" else "model"
+        history.append({"role": role, "parts": [msg.content]})
+
+    last_message = messages[-1].content if messages else ""
 
     async def token_generator():
         try:
-            stream = client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=messages,
-                temperature=0.3,
-                max_tokens=800,
-                stream=True,
-            )
-            for chunk in stream:
-                delta = chunk.choices[0].delta.content
-                if delta:
-                    yield delta
+            chat = model.start_chat(history=history)
+            response = chat.send_message(last_message, stream=True)
+            for chunk in response:
+                if chunk.text:
+                    yield chunk.text
         except Exception as exc:
             logger.error("Chat stream error: %s", exc)
             yield f"\n\n[Error: {str(exc)}]"

@@ -4,7 +4,7 @@ import json
 import re
 from functools import lru_cache
 
-from groq import Groq, GroqError
+import google.generativeai as genai
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from app.core.config import settings
@@ -28,25 +28,26 @@ Schema:
 
 
 @lru_cache(maxsize=1)
-def _get_client() -> Groq:
-    return Groq(api_key=settings.GROQ_API_KEY)
+def _get_model():
+    genai.configure(api_key=settings.GEMINI_API_KEY)
+    return genai.GenerativeModel(
+        model_name="gemini-2.0-flash-lite",
+        generation_config=genai.GenerationConfig(
+            temperature=0.2,
+            max_output_tokens=800,
+        ),
+    )
 
 
 @retry(stop=stop_after_attempt(2), wait=wait_exponential(multiplier=1, min=1, max=4))
 def analyze_logs(logs: str) -> dict:
     try:
-        client = _get_client()
-        completion = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[
-                {"role": "system", "content": _SYSTEM_PROMPT},
-                {"role": "user", "content": f"Logs:\n\n{logs}"},
-            ],
-            temperature=0.2,
-            max_tokens=600,
-        )
+        model = _get_model()
+        prompt = f"{_SYSTEM_PROMPT}\n\nLogs:\n\n{logs}"
+        response = model.generate_content(prompt)
+        raw = response.text.strip()
 
-        raw = completion.choices[0].message.content.strip()
+        # Strip accidental markdown fences
         raw = re.sub(r"^```(?:json)?\s*", "", raw)
         raw = re.sub(r"\s*```$", "", raw)
 
@@ -58,10 +59,10 @@ def analyze_logs(logs: str) -> dict:
             "root_cause":  str(parsed.get("root_cause", "Unknown")),
             "remediation": str(parsed.get("remediation", "No remediation steps provided")),
             "confidence":  _clamp(parsed.get("confidence", 50)),
-            "model":       "llama-3.3-70b-versatile (Groq)",
+            "model":       "gemini-2.0-flash-lite",
         }
 
-    except (GroqError, json.JSONDecodeError) as exc:
+    except (json.JSONDecodeError, Exception) as exc:
         logger.error("AI analysis failed: %s", exc)
         raise
 
