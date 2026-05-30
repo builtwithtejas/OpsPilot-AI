@@ -55,27 +55,38 @@ def _get_model():
     )
 
 def _extract_json(raw: str) -> dict:
-    import json
-    import re
-
     raw = raw.strip()
 
     # Remove markdown fences
-    raw = re.sub(r"^```json\s*", "", raw)
+    raw = re.sub(r"^```(?:json)?\s*", "", raw)
     raw = re.sub(r"\s*```$", "", raw)
 
+    # Try direct parse first
     try:
         return json.loads(raw)
     except Exception:
         pass
 
-    start = raw.find("{")
-    end = raw.rfind("}")
+    # Try extracting first JSON object
+    match = re.search(r"\{[\s\S]*\}", raw)
 
-    if start != -1 and end != -1 and end > start:
-        return json.loads(raw[start:end + 1])
+    if match:
+        try:
+            return json.loads(match.group(0))
+        except Exception:
+            pass
 
-    raise ValueError("No valid JSON object found in Gemini response")
+    logger.error("Gemini returned incomplete JSON: %s", raw[:500])
+
+    return {
+        "summary": "AI returned incomplete JSON",
+        "severity": "Medium",
+        "root_cause": "Gemini response was truncated before JSON completed",
+        "remediation": (
+            "Retry analysis. Reduce log size or increase output token limits."
+        ),
+        "confidence": 0,
+    }
 
 @retry(
     stop=stop_after_attempt(2),
@@ -84,6 +95,10 @@ def _extract_json(raw: str) -> dict:
 def analyze_logs(logs: str) -> dict:
     try:
         model = _get_model()
+
+        # Prevent huge prompts that can cause truncation
+        MAX_LOG_CHARS = 4000
+        logs = logs[:MAX_LOG_CHARS]
 
         prompt = f"{_SYSTEM_PROMPT}\n\nLogs:\n\n{logs}"
 
@@ -96,7 +111,22 @@ def analyze_logs(logs: str) -> dict:
             ),
         )
 
-        raw = response.text.strip()
+        raw = getattr(response, "text", "") or ""
+
+        if not raw:
+            logger.error("Gemini returned empty response")
+
+            return {
+                "summary": "AI returned empty response",
+                "severity": "Medium",
+                "root_cause": "Gemini returned no content",
+                "remediation": "Retry analysis.",
+                "confidence": 0,
+                "model": settings.GEMINI_MODEL,
+            }
+
+        raw = raw.strip()
+
         logger.info("Gemini raw response: %s", raw)
 
         try:
@@ -150,6 +180,22 @@ def analyze_logs(logs: str) -> dict:
                     50,
                 )
             ),
+            "model": settings.GEMINI_MODEL,
+        }
+
+    except Exception as exc:
+        logger.exception("AI analysis failed")
+
+        return {
+            "summary": "AI service temporarily unavailable",
+            "severity": "Medium",
+            "root_cause": str(exc),
+            "remediation": (
+                "Retry the analysis. "
+                "If the issue persists, verify Gemini API credentials, "
+                "quota limits, and service availability."
+            ),
+            "confidence": 0,
             "model": settings.GEMINI_MODEL,
         }
 
