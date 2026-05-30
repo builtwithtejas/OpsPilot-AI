@@ -19,7 +19,7 @@ class IncidentCreate(BaseModel):
     confidence: int = Field(..., ge=0, le=100)
 
     # NEW
-    source: str | None = None
+    source: str = "GitLab"
     pipeline_id: int | None = None
     gitlab_issue_url: str | None = None
 

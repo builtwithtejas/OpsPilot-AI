@@ -83,6 +83,26 @@ async def get_pipeline_jobs(project_id: str | int, pipeline_id: int) -> list[dic
         ]
 
 
+async def get_job_trace(
+    project_id: str | int,
+    job_id: int,
+) -> str:
+    """
+    Fetch raw GitLab job logs.
+    """
+
+    async with httpx.AsyncClient(timeout=20) as client:
+        resp = await client.get(
+            f"{_base()}/projects/{project_id}/jobs/{job_id}/trace",
+            headers=_headers(),
+        )
+
+        resp.raise_for_status()
+
+        return resp.text
+
+
+
 async def post_pipeline_comment(
     project_id: str | int,
     pipeline_id: int,

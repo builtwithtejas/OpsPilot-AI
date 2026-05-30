@@ -30,6 +30,7 @@ from app.services.gitlab_service import (
     create_gitlab_issue,
     get_failed_pipelines,
     get_pipeline_jobs,
+    get_job_trace,
     post_pipeline_comment,
 )
 from app.services.incident_service import create_incident
@@ -99,24 +100,68 @@ async def run_agent(db: Session, project_id: str, pipeline_id: int | None = None
         return run
 
     # ── Step 2: Gather job logs ───────────────────────────────────
+       # ── Step 2: Gather job logs ───────────────────────────────────
     step2 = AgentStep(name="gather_job_logs")
     run.steps.append(step2)
     step2.status = "running"
+
     try:
         jobs = await get_pipeline_jobs(project_id, pipeline_id)
-        failed_jobs = [j for j in jobs if j["status"] == "failed"]
-        log_text = _build_log_text(run.steps[0].result, failed_jobs)
-        step2.result = {"job_count": len(jobs), "failed_jobs": len(failed_jobs), "log_preview": log_text[:300]}
+
+        failed_jobs = [
+            j for j in jobs
+            if j["status"] == "failed"
+        ]
+
+        log_text = _build_log_text(
+            run.steps[0].result,
+            failed_jobs,
+        )
+
+        for job in failed_jobs:
+            try:
+                trace = await get_job_trace(
+                    project_id,
+                    job["id"],
+                )
+
+                log_text += (
+                    f"\n\n===== JOB: {job['name']} =====\n"
+                    f"{trace[:5000]}"
+                )
+
+            except Exception as exc:
+                logger.warning(
+                    "Unable to fetch trace for job %s: %s",
+                    job["id"],
+                    exc,
+                )
+
+        step2.result = {
+            "job_count": len(jobs),
+            "failed_jobs": len(failed_jobs),
+            "log_preview": log_text[:300],
+        }
+
         step2.status = "done"
-        logger.info("[%s] Step 2 done — %d failed jobs", run.run_id, len(failed_jobs))
+
+        logger.info(
+            "[%s] Step 2 done — %d failed jobs",
+            run.run_id,
+            len(failed_jobs),
+        )
+
     except Exception as exc:
         step2.status = "failed"
         step2.error = str(exc)
-        # Non-fatal — use minimal log text
-        log_text = f"Pipeline {pipeline_id} failed. Unable to retrieve detailed job logs: {exc}"
+
+        log_text = (
+            f"Pipeline {pipeline_id} failed. "
+            f"Unable to retrieve detailed job logs: {exc}"
+        )
+
         step2.result = {"error": str(exc)}
         step2.status = "done"
-
     # ── Step 3: Gemini analysis ───────────────────────────────────
     step3 = AgentStep(name="gemini_analysis")
     run.steps.append(step3)
