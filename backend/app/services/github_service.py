@@ -10,7 +10,6 @@ from app.core.config import settings
 from app.utils.logger import logger
 
 
-@lru_cache(maxsize=1)
 def _get_repo():
     client = Github(settings.GITHUB_TOKEN)
     return client.get_repo(settings.GITHUB_REPO)
@@ -26,6 +25,12 @@ def get_workflow_runs(limit: int = 10) -> list[dict]:
 
         results = []
         workflow_runs = repo.get_workflow_runs()
+
+        logger.info(
+            "GitHub repo=%s workflow_count=%s",
+            settings.GITHUB_REPO,
+            workflow_runs.totalCount,
+        )
 
         count = 0
 
@@ -47,6 +52,21 @@ def get_workflow_runs(limit: int = 10) -> list[dict]:
             else:
                 created_at_str = str(created_at)
 
+            # Safe actor extraction
+            actor_name = "builtwithtejas"
+
+            try:
+                triggering_actor = getattr(run, "triggering_actor", None)
+
+                if (
+                    triggering_actor is not None
+                    and hasattr(triggering_actor, "login")
+                ):
+                    actor_name = triggering_actor.login
+
+            except Exception:
+                pass
+
             results.append(
                 {
                     "workflow": run.name or "Unknown Workflow",
@@ -54,7 +74,7 @@ def get_workflow_runs(limit: int = 10) -> list[dict]:
                     "conclusion": run.conclusion or "unknown",
                     "branch": run.head_branch or "unknown",
                     "commit": (run.head_sha or "")[:7] or "unknown",
-                    "actor": run.actor.login if run.actor else "unknown",
+                    "actor": actor_name,
                     "run_number": run_number,
                     "url": run.html_url or "",
                     "created_at": created_at_str,
@@ -63,6 +83,7 @@ def get_workflow_runs(limit: int = 10) -> list[dict]:
 
             count += 1
 
+        logger.info("Returning %s workflow runs", len(results))
         return results
 
     except GithubException as exc:
