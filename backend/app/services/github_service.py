@@ -190,10 +190,15 @@ def build_analytics(runs: list[dict]) -> dict:
     ]
 
     severity_distribution = [
-        {"name": "Healthy", "value": healthy},
-        {"name": "Warning", "value": warning},
-        {"name": "Critical", "value": critical},
-    ]
+    {"name": "Healthy", "value": healthy},
+    {"name": "Warning", "value": warning},
+    {"name": "Critical", "value": critical},
+]
+
+    severity_distribution = [
+    item for item in severity_distribution
+    if item["value"] > 0
+]
 
     if failed > 0:
         suggested_commands = [
