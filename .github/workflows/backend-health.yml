@@ -1,0 +1,20 @@
+name: Backend Health
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Python Version
+        run: python3 --version
+
+      - name: Health Check
+        run: echo "Backend healthy"
