@@ -138,14 +138,19 @@ async def run_agent(db: Session, project_id: str, pipeline_id: int | None = None
     run.steps.append(step4)
     step4.status = "running"
     try:
-        incident = create_incident(db, IncidentCreate(
-            title=f"[GitLab #{pipeline_id}] {analysis['summary'][:90]}",
-            severity=analysis["severity"],
-            status="Open",
-            description=analysis["summary"],
-            remediation=analysis["remediation"],
-            confidence=analysis["confidence"],
-        ))
+        incident = create_incident(
+    db,
+    IncidentCreate(
+        title=f"[GitLab #{pipeline_id}] {analysis['summary'][:90]}",
+        severity=analysis["severity"],
+        status="Open",
+        description=analysis["summary"],
+        remediation=analysis["remediation"],
+        confidence=analysis["confidence"],
+        source="GitLab",
+        pipeline_id=pipeline_id,
+    ),
+)
         log_action(db, incident.id, "created", f"Auto-created by OpsPilot agent (pipeline #{pipeline_id})", actor="agent")
         run.incident_id = incident.id
         step4.result = {"incident_id": incident.id}
@@ -171,6 +176,8 @@ async def run_agent(db: Session, project_id: str, pipeline_id: int | None = None
             labels=["opspilot", "incident", analysis["severity"].lower(), "ci-cd"],
         )
         run.gitlab_issue_url = issue["url"]
+        incident.gitlab_issue_url = issue["url"]
+        db.commit()
 
         # Also try to comment on any open MR
         try:
@@ -224,7 +231,7 @@ def _build_issue_body(analysis: dict, incident_id: int, run_id: str) -> str:
 
 **Run ID:** `{run_id}`  
 **OpsPilot Incident:** #{incident_id}  
-**AI Model:** Gemini 1.5 Flash  
+**AI Model:** Gemini 2.5 Flash
 **Confidence:** {analysis['confidence']}%
 
 ---
