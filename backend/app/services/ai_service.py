@@ -45,29 +45,72 @@ def _get_model():
 def analyze_logs(logs: str) -> dict:
     try:
         model = _get_model()
+
         prompt = f"{_SYSTEM_PROMPT}\n\nLogs:\n\n{logs}"
+
         response = model.generate_content(prompt)
         raw = response.text.strip()
 
         # Strip accidental markdown fences
         raw = re.sub(r"^```(?:json)?\s*", "", raw)
         raw = re.sub(r"\s*```$", "", raw)
+
         logger.info("Gemini raw response: %s", raw)
-        parsed = json.loads(raw)
+
+        try:
+            parsed = json.loads(raw)
+
+        except json.JSONDecodeError:
+            logger.error("Invalid Gemini JSON: %s", raw)
+
+            return {
+                "summary": "AI response parsing failed",
+                "severity": "Medium",
+                "root_cause": "Gemini returned malformed JSON",
+                "remediation": (
+                    "Retry analysis or improve prompt constraints. "
+                    "The AI model returned invalid JSON."
+                ),
+                "confidence": 0,
+                "model": settings.GEMINI_MODEL,
+            }
 
         return {
-            "summary":     str(parsed.get("summary", "Unable to determine summary")),
-            "severity":    _validate_severity(parsed.get("severity")),
-            "root_cause":  str(parsed.get("root_cause", "Unknown")),
-            "remediation": str(parsed.get("remediation", "No remediation steps provided")),
-            "confidence":  _clamp(parsed.get("confidence", 50)),
+            "summary": str(
+                parsed.get("summary", "Unable to determine summary")
+            ),
+            "severity": _validate_severity(
+                parsed.get("severity")
+            ),
+            "root_cause": str(
+                parsed.get("root_cause", "Unknown")
+            ),
+            "remediation": str(
+                parsed.get(
+                    "remediation",
+                    "No remediation steps provided",
+                )
+            ),
+            "confidence": _clamp(
+                parsed.get("confidence", 50)
+            ),
             "model": settings.GEMINI_MODEL,
         }
 
-    except (json.JSONDecodeError, Exception) as exc:
+    except Exception as exc:
         logger.error("AI analysis failed: %s", exc)
-        raise
 
+        return {
+            "summary": "AI service temporarily unavailable",
+            "severity": "Medium",
+            "root_cause": str(exc),
+            "remediation": (
+                "Retry the analysis. "
+                "If the issue persists, check Gemini API logs and configuration."
+            ),
+            "confidence": 0,
+            "model": settings.GEMINI_MODEL,
+        }
 
 def _validate_severity(value: str | None) -> str:
     if value in {"Low", "Medium", "High", "Critical"}:
