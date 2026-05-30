@@ -43,7 +43,7 @@ Incident context:
 - Remediation: {incident.remediation}
 - AI Confidence: {incident.confidence}%
 
-Answer concisely and technically. Suggest exact commands and fixes."""
+Answer questions concisely and technically. Suggest exact commands and fixes."""
 
     genai.configure(api_key=settings.GEMINI_API_KEY)
     model = genai.GenerativeModel(
@@ -52,8 +52,10 @@ Answer concisely and technically. Suggest exact commands and fixes."""
         generation_config=genai.GenerationConfig(temperature=0.3, max_output_tokens=800),
     )
 
+    # Build conversation history for Gemini
     history = []
     messages = list(request.messages)
+    # Last message is the new user query — rest is history
     for msg in messages[:-1]:
         role = "user" if msg.role == "user" else "model"
         history.append({"role": role, "parts": [msg.content]})
