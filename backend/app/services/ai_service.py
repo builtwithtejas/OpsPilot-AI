@@ -31,6 +31,7 @@ Schema:
 def _get_model():
     genai.configure(api_key=settings.GEMINI_API_KEY)
 
+    logger.info(f"Using Gemini model: {settings.GEMINI_MODEL}")
     return genai.GenerativeModel(
         model_name=settings.GEMINI_MODEL,
         generation_config=genai.GenerationConfig(
