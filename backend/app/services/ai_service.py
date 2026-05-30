@@ -14,7 +14,7 @@ from app.utils.logger import logger
 _SYSTEM_PROMPT = """
 You are an elite DevOps AI engineer specializing in CI/CD incident response.
 
-Analyze the provided logs and respond with ONLY a valid JSON object — no markdown, no preamble.
+Analyze the provided logs and respond with ONLY a valid JSON object.
 
 Schema:
 {
@@ -31,7 +31,8 @@ Schema:
 def _get_model():
     genai.configure(api_key=settings.GEMINI_API_KEY)
 
-    logger.info(f"Using Gemini model: {settings.GEMINI_MODEL}")
+    logger.info("Using Gemini model: %s", settings.GEMINI_MODEL)
+
     return genai.GenerativeModel(
         model_name=settings.GEMINI_MODEL,
         generation_config=genai.GenerationConfig(
@@ -41,7 +42,37 @@ def _get_model():
     )
 
 
-@retry(stop=stop_after_attempt(2), wait=wait_exponential(multiplier=1, min=1, max=4))
+def _extract_json(raw: str) -> dict:
+    """
+    Makes Gemini responses much more reliable.
+    Handles:
+    - markdown fences
+    - extra text before/after JSON
+    - malformed wrapper text
+    """
+
+    raw = raw.strip()
+
+    raw = re.sub(r"^```(?:json)?\s*", "", raw)
+    raw = re.sub(r"\s*```$", "", raw)
+
+    try:
+        return json.loads(raw)
+    except Exception:
+        pass
+
+    match = re.search(r"\{.*\}", raw, re.DOTALL)
+
+    if match:
+        return json.loads(match.group())
+
+    raise ValueError("No valid JSON object found in Gemini response")
+
+
+@retry(
+    stop=stop_after_attempt(2),
+    wait=wait_exponential(multiplier=1, min=1, max=4),
+)
 def analyze_logs(logs: str) -> dict:
     try:
         model = _get_model()
@@ -49,27 +80,29 @@ def analyze_logs(logs: str) -> dict:
         prompt = f"{_SYSTEM_PROMPT}\n\nLogs:\n\n{logs}"
 
         response = model.generate_content(prompt)
-        raw = response.text.strip()
 
-        # Strip accidental markdown fences
-        raw = re.sub(r"^```(?:json)?\s*", "", raw)
-        raw = re.sub(r"\s*```$", "", raw)
+        raw = getattr(response, "text", "") or ""
 
         logger.info("Gemini raw response: %s", raw)
 
         try:
-            parsed = json.loads(raw)
+            parsed = _extract_json(raw)
 
-        except json.JSONDecodeError:
-            logger.error("Invalid Gemini JSON: %s", raw)
+        except Exception as exc:
+            logger.error(
+                "Failed to parse Gemini JSON: %s | Raw=%s",
+                exc,
+                raw,
+            )
 
             return {
                 "summary": "AI response parsing failed",
                 "severity": "Medium",
                 "root_cause": "Gemini returned malformed JSON",
                 "remediation": (
-                    "Retry analysis or improve prompt constraints. "
-                    "The AI model returned invalid JSON."
+                    "Retry analysis. "
+                    "If the issue persists, improve prompt constraints "
+                    "or inspect Gemini raw output logs."
                 ),
                 "confidence": 0,
                 "model": settings.GEMINI_MODEL,
@@ -77,13 +110,19 @@ def analyze_logs(logs: str) -> dict:
 
         return {
             "summary": str(
-                parsed.get("summary", "Unable to determine summary")
+                parsed.get(
+                    "summary",
+                    "Unable to determine summary",
+                )
             ),
             "severity": _validate_severity(
                 parsed.get("severity")
             ),
             "root_cause": str(
-                parsed.get("root_cause", "Unknown")
+                parsed.get(
+                    "root_cause",
+                    "Unknown",
+                )
             ),
             "remediation": str(
                 parsed.get(
@@ -92,13 +131,16 @@ def analyze_logs(logs: str) -> dict:
                 )
             ),
             "confidence": _clamp(
-                parsed.get("confidence", 50)
+                parsed.get(
+                    "confidence",
+                    50,
+                )
             ),
             "model": settings.GEMINI_MODEL,
         }
 
     except Exception as exc:
-        logger.error("AI analysis failed: %s", exc)
+        logger.exception("AI analysis failed")
 
         return {
             "summary": "AI service temporarily unavailable",
@@ -106,15 +148,18 @@ def analyze_logs(logs: str) -> dict:
             "root_cause": str(exc),
             "remediation": (
                 "Retry the analysis. "
-                "If the issue persists, check Gemini API logs and configuration."
+                "If the issue persists, verify Gemini API credentials, "
+                "quota limits, and service availability."
             ),
             "confidence": 0,
             "model": settings.GEMINI_MODEL,
         }
 
+
 def _validate_severity(value: str | None) -> str:
     if value in {"Low", "Medium", "High", "Critical"}:
         return value
+
     return "Medium"
 
 
