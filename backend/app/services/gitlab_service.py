@@ -69,7 +69,7 @@ async def get_pipeline_jobs(project_id: str | int, pipeline_id: int) -> list[dic
         )
         resp.raise_for_status()
         jobs = resp.json()
-        logger.info("Retrieved %d jobs: %s", len(jobs), jobs)
+        logger.info("GitLab raw jobs response: %s", jobs)
         return [
             {
                 "id": j["id"],
