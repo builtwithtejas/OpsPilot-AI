@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import re
-from functools import lru_cache
 
 import google.generativeai as genai
 from tenacity import retry, stop_after_attempt, wait_exponential
@@ -27,8 +26,8 @@ Schema:
 """.strip()
 
 
-@lru_cache(maxsize=1)
 def _get_model():
+    """Always configure fresh — picks up any new GEMINI_API_KEY without restart."""
     genai.configure(api_key=settings.GEMINI_API_KEY)
     return genai.GenerativeModel(
         model_name="gemini-2.0-flash-lite",
@@ -47,7 +46,6 @@ def analyze_logs(logs: str) -> dict:
         response = model.generate_content(prompt)
         raw = response.text.strip()
 
-        # Strip accidental markdown fences
         raw = re.sub(r"^```(?:json)?\s*", "", raw)
         raw = re.sub(r"\s*```$", "", raw)
 
@@ -62,7 +60,7 @@ def analyze_logs(logs: str) -> dict:
             "model":       "gemini-2.0-flash-lite",
         }
 
-    except (json.JSONDecodeError, Exception) as exc:
+    except Exception as exc:
         logger.error("AI analysis failed: %s", exc)
         raise
 

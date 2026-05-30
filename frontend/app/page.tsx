@@ -1,142 +1,75 @@
 "use client";
 
-import { useEffect } from "react";
 import AppShell from "@/components/AppShell";
-import HealthCard from "@/components/HealthCard";
-import MetricsCard from "@/components/MetricsCard";
-import StatsCard from "@/components/StatsCard";
-import Section from "@/components/Section";
-import UploadBox from "@/components/UploadBox";
-import AnalysisPanel from "@/components/AnalysisPanel";
-import DeploymentPipeline from "@/components/DeploymentPipeline";
-import Console from "@/components/Console";
-import WorkflowList from "@/components/WorkflowList";
-import CommandPanel from "@/components/CommandPanel";
 import Charts from "@/components/Charts";
+import ConfidenceChart from "@/components/ConfidenceChart";
 import ActivityFeed from "@/components/ActivityFeed";
-import LoadingScreen from "@/components/LoadingScreen";
+import CommandPanel from "@/components/CommandPanel";
+import Section from "@/components/Section";
 import { useAnalytics } from "@/hooks/useAnalytics";
-import { useLogUpload } from "@/hooks/useLogUpload";
 import { useIncidents } from "@/hooks/useIncidents";
-import { formatUptime } from "@/utils/formatters";
 
-export default function Home() {
-  const { analytics, workflows, metrics, loading, error, latency, refresh } = useAnalytics(30_000);
-  const { result: uploadResult, loading: uploading, error: uploadError, upload } = useLogUpload();
+export default function AnalyticsPage() {
+  const { analytics, workflows, loading, error, latency } = useAnalytics(30_000);
   const { incidents } = useIncidents();
-  const latestWorkflow = workflows[0] ?? null;
-
-  // R to refresh
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "r" && !["INPUT","SELECT","TEXTAREA"].includes((document.activeElement as HTMLElement)?.tagName ?? "")) {
-        void refresh();
-      }
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [refresh]);
-
-  if (loading && !analytics) return <LoadingScreen />;
-
-  const apiColor = error ? "#ff4d4d" : "#33ff88";
 
   return (
-    <AppShell onRefresh={refresh}>
-      {/* Header */}
-      <div className="fade-up" style={{ marginBottom: "32px", display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: "12px" }}>
-        <div>
-          <h1 style={{ fontSize: "clamp(36px,5vw,68px)", fontWeight: 800, background: "linear-gradient(to right,#33ff88,#00c3ff)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", marginBottom: "6px" }}>OpsPilot AI</h1>
-          <p style={{ color: "var(--text-tertiary)", fontSize: "16px" }}>AI-Powered CI/CD Incident Intelligence</p>
-        </div>
-        <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-          <span className="kbd">R</span><span style={{ fontSize: "12px", color: "var(--text-tertiary)" }}>refresh</span>
-          <span className="kbd">⌘K</span><span style={{ fontSize: "12px", color: "var(--text-tertiary)" }}>palette</span>
-          <button onClick={() => void refresh()} className="glow-button" style={{ padding: "10px 18px", borderRadius: "12px", background: "rgba(0,195,255,0.1)", border: "1px solid #00c3ff55", color: "#00c3ff", fontWeight: 600, cursor: "pointer", fontSize: "13px" }}>↻ Refresh</button>
-        </div>
+    <AppShell>
+      <div className="fade-up" style={{ marginBottom: "28px" }}>
+        <h1 style={{ fontSize: "clamp(28px,4vw,48px)", fontWeight: 800, background: "linear-gradient(to right,#33ff88,#00c3ff)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", marginBottom: "6px" }}>
+          Analytics
+        </h1>
+        <p style={{ color: "var(--text-tertiary)", fontSize: "15px" }}>
+          Real-time CI/CD pipeline intelligence{latency ? ` · ${latency}ms` : ""}
+        </p>
       </div>
 
-      {/* Health */}
-      <div className="fade-up" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: "16px", marginBottom: "20px" }}>
-        <HealthCard title="API Status"      value={`● ${error ? "Offline" : "Operational"}`}       color={apiColor} />
-        <HealthCard title="Backend Latency" value={latency ? `${latency} ms` : "—"}                  color="#00c3ff" />
-        <HealthCard title="Total Runs"      value={analytics ? String(analytics.stats.total) : "—"} color="#ffb347" />
-   <HealthCard title="AI Engine" value="GEMINI ACTIVE" color="#4285F4" />
-      </div>
-
-      {/* System metrics */}
-      {metrics && (
-        <div className="fade-up" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: "16px", marginBottom: "20px" }}>
-          <MetricsCard title="CPU"         value={`${metrics.cpu_usage}%`}                              color="#00c3ff" />
-          <MetricsCard title="Memory"      value={`${metrics.memory_usage}%`}                           color="#ffb347" />
-          <MetricsCard title="Memory Used" value={`${(metrics.memory_used_mb/1024).toFixed(1)} GB`}     color="#33ff88" />
-          <MetricsCard title="Disk"        value={`${metrics.disk_usage}%`}                             color="#ff7a00" />
-          <MetricsCard title="Uptime"      value={formatUptime(metrics.uptime_seconds)}                 color="#ff4d4d" />
-          <MetricsCard title="Updated"     value={new Date(metrics.timestamp).toLocaleTimeString()}     color="#888" />
+      {loading && !analytics ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+          {[120, 300, 260, 260].map((h, i) => <div key={i} className="skeleton" style={{ height: `${h}px`, borderRadius: "16px" }} />)}
         </div>
-      )}
+      ) : error ? (
+        <div style={{ color: "#ff4d4d", fontFamily: "monospace", padding: "20px" }}>⚠ {error}</div>
+      ) : analytics ? (
+        <>
+          <div className="fade-up" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: "14px", marginBottom: "28px" }}>
+            {[
+              { label: "Total Runs",   value: analytics.stats.total,              color: "#00c3ff" },
+              { label: "Successful",   value: analytics.stats.success,            color: "#33ff88" },
+              { label: "Failed",       value: analytics.stats.failed,             color: "#ff4d4d" },
+              { label: "Success Rate", value: `${analytics.stats.success_rate}%`, color: "#ffb347" },
+            ].map(s => (
+              <div key={s.label} className="hover-card" style={{ background: "var(--card-bg)", border: `1px solid ${s.color}33`, borderRadius: "16px", padding: "18px", backdropFilter: "blur(12px)" }}>
+                <div style={{ color: "var(--text-tertiary)", fontSize: "13px", marginBottom: "6px" }}>{s.label}</div>
+                <div style={{ color: s.color, fontSize: "30px", fontWeight: 700 }}>{s.value}</div>
+              </div>
+            ))}
+          </div>
 
-      {/* Latest workflow */}
-      {latestWorkflow && (
-        <div className="fade-up" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(180px,1fr))", gap: "16px", marginBottom: "20px" }}>
-          <MetricsCard title="Workflow" value={latestWorkflow.workflow} color="#00c3ff" />
-          <MetricsCard title="Branch"   value={latestWorkflow.branch}   color="#ffb347" />
-          <MetricsCard title="Commit"   value={latestWorkflow.commit}   color="#33ff88" />
-          <MetricsCard title="Actor"    value={latestWorkflow.actor}    color="#ff7a00" />
-          <MetricsCard title="Run #"    value={latestWorkflow.run_number ? `#${latestWorkflow.run_number}` : "—"} color="#ff4d4d" />
-          <MetricsCard title="Status"   value={latestWorkflow.conclusion ?? latestWorkflow.status}
-            color={latestWorkflow.conclusion === "success" ? "#33ff88" : latestWorkflow.conclusion === "failure" ? "#ff4d4d" : "#ffb347"} />
-        </div>
-      )}
+          <Section title="AI System Analysis">
+            <p style={{ color: "var(--text-secondary)", lineHeight: 1.7, fontSize: "15px", fontFamily: "monospace" }}>{analytics.analysis}</p>
+          </Section>
 
-      {/* Stats */}
-      {analytics && (
-        <div className="fade-up" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: "16px", marginBottom: "28px" }}>
-          <StatsCard title="Successful Runs" value={analytics.stats.success}           color="#33ff88" />
-          <StatsCard title="Failed Runs"     value={analytics.stats.failed}            color="#ff4d4d" />
-          <StatsCard title="Total Runs"      value={analytics.stats.total}             color="#00c3ff" />
-          <StatsCard title="Success Rate"    value={analytics.stats.success_rate ?? 0} color="#ffb347" suffix="%" decimals={1} />
-        </div>
-      )}
+          <Section title="AI Confidence Score History">
+            <ConfidenceChart incidents={incidents} />
+          </Section>
 
-      {/* Activity feed on dashboard too */}
-      {(incidents.length > 0 || workflows.length > 0) && (
-        <Section title="Recent Activity">
-          <ActivityFeed incidents={incidents} workflows={workflows} />
-        </Section>
-      )}
+          <Section title="Pipeline Charts">
+            <Charts analytics={analytics} />
+          </Section>
 
-      <Section title="Upload & Analyze Logs">
-        <UploadBox onFile={upload} loading={uploading} />
-      </Section>
-
-      <Section title="AI Incident Analysis">
-        <AnalysisPanel result={uploadResult} analytics={analytics} loading={uploading} error={uploadError} />
-      </Section>
-
-      <Section title="Deployment Pipeline">
-        <DeploymentPipeline latestRun={latestWorkflow} />
-      </Section>
-
-      <Section title="Live DevOps Console">
-        <Console workflows={workflows} />
-      </Section>
-
-      <Section title="Recent GitHub Workflows">
-        <WorkflowList workflows={workflows} />
-      </Section>
-
-      {analytics && (
-        <Section title="AI Suggested Commands">
-          <CommandPanel commands={analytics.suggested_commands} />
-        </Section>
-      )}
-
-      {analytics && (
-        <Section title="Analytics">
-          <Charts analytics={analytics} />
-        </Section>
-      )}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "24px", marginBottom: "24px" }}>
+            <div style={{ background: "var(--card-bg)", border: "1px solid var(--border)", borderRadius: "20px", padding: "24px", backdropFilter: "blur(12px)" }}>
+              <h2 style={{ fontSize: "20px", fontWeight: 700, marginBottom: "20px" }}>Activity Feed</h2>
+              <ActivityFeed incidents={incidents} workflows={workflows} />
+            </div>
+            <div style={{ background: "var(--card-bg)", border: "1px solid var(--border)", borderRadius: "20px", padding: "24px", backdropFilter: "blur(12px)" }}>
+              <h2 style={{ fontSize: "20px", fontWeight: 700, marginBottom: "20px" }}>AI Suggested Commands</h2>
+              <CommandPanel commands={analytics.suggested_commands} />
+            </div>
+          </div>
+        </>
+      ) : null}
     </AppShell>
   );
 }
