@@ -30,8 +30,9 @@ Schema:
 @lru_cache(maxsize=1)
 def _get_model():
     genai.configure(api_key=settings.GEMINI_API_KEY)
+
     return genai.GenerativeModel(
-        model_name="gemini-2.0-flash-lite",
+        model_name=settings.GEMINI_MODEL,
         generation_config=genai.GenerationConfig(
             temperature=0.2,
             max_output_tokens=800,

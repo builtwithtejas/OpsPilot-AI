@@ -47,7 +47,7 @@ Answer questions concisely and technically. Suggest exact commands and fixes."""
 
     genai.configure(api_key=settings.GEMINI_API_KEY)
     model = genai.GenerativeModel(
-        model_name="gemini-2.0-flash-lite",
+         model_name=settings.GEMINI_MODEL,
         system_instruction=system_prompt,
         generation_config=genai.GenerationConfig(temperature=0.3, max_output_tokens=800),
     )
