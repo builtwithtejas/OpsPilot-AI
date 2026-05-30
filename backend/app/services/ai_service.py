@@ -52,7 +52,7 @@ def analyze_logs(logs: str) -> dict:
         # Strip accidental markdown fences
         raw = re.sub(r"^```(?:json)?\s*", "", raw)
         raw = re.sub(r"\s*```$", "", raw)
-
+        logger.info("Gemini raw response: %s", raw)
         parsed = json.loads(raw)
 
         return {
