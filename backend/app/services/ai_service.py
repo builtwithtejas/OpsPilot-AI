@@ -61,7 +61,7 @@ def analyze_logs(logs: str) -> dict:
             "root_cause":  str(parsed.get("root_cause", "Unknown")),
             "remediation": str(parsed.get("remediation", "No remediation steps provided")),
             "confidence":  _clamp(parsed.get("confidence", 50)),
-            "model":       "gemini-2.0-flash-lite",
+            "model":       "gemini-2.5-flash",
         }
 
     except (json.JSONDecodeError, Exception) as exc:
