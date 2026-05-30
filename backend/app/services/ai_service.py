@@ -14,7 +14,14 @@ from app.utils.logger import logger
 _SYSTEM_PROMPT = """
 You are an elite DevOps AI engineer specializing in CI/CD incident response.
 
-Analyze the provided logs and respond with ONLY a valid JSON object.
+Analyze the provided logs.
+
+IMPORTANT:
+- Return ONLY valid JSON.
+- Do not wrap JSON in markdown.
+- Do not add explanations.
+- All property names must use double quotes.
+- The response must be parseable by Python json.loads().
 
 Schema:
 {
@@ -34,13 +41,8 @@ def _get_model():
     logger.info("Using Gemini model: %s", settings.GEMINI_MODEL)
 
     return genai.GenerativeModel(
-        model_name=settings.GEMINI_MODEL,
-        generation_config=genai.GenerationConfig(
-            temperature=0.2,
-            max_output_tokens=800,
-        ),
+        model_name=settings.GEMINI_MODEL
     )
-
 
 def _extract_json(raw: str) -> dict:
     """
@@ -79,10 +81,16 @@ def analyze_logs(logs: str) -> dict:
 
         prompt = f"{_SYSTEM_PROMPT}\n\nLogs:\n\n{logs}"
 
-        response = model.generate_content(prompt)
+        response = model.generate_content(
+            prompt,
+            generation_config=genai.GenerationConfig(
+                temperature=0,
+                response_mime_type="application/json",
+                max_output_tokens=800,
+            ),
+        )
 
-        raw = getattr(response, "text", "") or ""
-
+        raw = response.text.strip()
         logger.info("Gemini raw response: %s", raw)
 
         try:
