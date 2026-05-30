@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import re
-from functools import lru_cache
 
 import google.generativeai as genai
 from tenacity import retry, stop_after_attempt, wait_exponential
@@ -44,15 +43,12 @@ Schema:
 """.strip()
 
 
-@lru_cache(maxsize=1)
 def _get_model():
+    """Fresh configure every call — picks up new GEMINI_API_KEY without restart."""
     genai.configure(api_key=settings.GEMINI_API_KEY)
-
     logger.info("Using Gemini model: %s", settings.GEMINI_MODEL)
+    return genai.GenerativeModel(model_name=settings.GEMINI_MODEL)
 
-    return genai.GenerativeModel(
-        model_name=settings.GEMINI_MODEL
-    )
 
 def _extract_json(raw: str) -> dict:
     raw = raw.strip()
@@ -69,7 +65,6 @@ def _extract_json(raw: str) -> dict:
 
     # Try extracting first JSON object
     match = re.search(r"\{[\s\S]*\}", raw)
-
     if match:
         try:
             return json.loads(match.group(0))
@@ -79,14 +74,13 @@ def _extract_json(raw: str) -> dict:
     logger.error("Gemini returned incomplete JSON: %s", raw[:500])
 
     return {
-        "summary": "AI returned incomplete JSON",
-        "severity": "Medium",
-        "root_cause": "Gemini response was truncated before JSON completed",
-        "remediation": (
-            "Retry analysis. Reduce log size or increase output token limits."
-        ),
-        "confidence": 0,
+        "summary":     "AI returned incomplete JSON",
+        "severity":    "Medium",
+        "root_cause":  "Gemini response was truncated before JSON completed",
+        "remediation": "Retry analysis. Reduce log size or increase output token limits.",
+        "confidence":  0,
     }
+
 
 @retry(
     stop=stop_after_attempt(2),
@@ -97,7 +91,7 @@ def analyze_logs(logs: str) -> dict:
         model = _get_model()
 
         # Prevent huge prompts that can cause truncation
-        MAX_LOG_CHARS = 4000
+        MAX_LOG_CHARS = 2500
         logs = logs[:MAX_LOG_CHARS]
 
         prompt = f"{_SYSTEM_PROMPT}\n\nLogs:\n\n{logs}"
@@ -115,111 +109,63 @@ def analyze_logs(logs: str) -> dict:
 
         if not raw:
             logger.error("Gemini returned empty response")
-
             return {
-                "summary": "AI returned empty response",
-                "severity": "Medium",
-                "root_cause": "Gemini returned no content",
+                "summary":     "AI returned empty response",
+                "severity":    "Medium",
+                "root_cause":  "Gemini returned no content",
                 "remediation": "Retry analysis.",
-                "confidence": 0,
-                "model": settings.GEMINI_MODEL,
+                "confidence":  0,
+                "model":       settings.GEMINI_MODEL,
             }
 
         raw = raw.strip()
-
         logger.info("Gemini raw response: %s", raw)
 
         try:
             parsed = _extract_json(raw)
-
         except Exception as exc:
-            logger.error(
-                "Failed to parse Gemini JSON: %s | Raw=%s",
-                exc,
-                raw,
-            )
-
+            logger.error("Failed to parse Gemini JSON: %s | Raw=%s", exc, raw)
             return {
-                "summary": "AI response parsing failed",
-                "severity": "Medium",
-                "root_cause": "Gemini returned malformed JSON",
+                "summary":     "AI response parsing failed",
+                "severity":    "Medium",
+                "root_cause":  "Gemini returned malformed JSON",
                 "remediation": (
                     "Retry analysis. "
                     "If the issue persists, improve prompt constraints "
                     "or inspect Gemini raw output logs."
                 ),
-                "confidence": 0,
-                "model": settings.GEMINI_MODEL,
+                "confidence":  0,
+                "model":       settings.GEMINI_MODEL,
             }
 
         return {
-            "summary": str(
-                parsed.get(
-                    "summary",
-                    "Unable to determine summary",
-                )
-            ),
-            "severity": _validate_severity(
-                parsed.get("severity")
-            ),
-            "root_cause": str(
-                parsed.get(
-                    "root_cause",
-                    "Unknown",
-                )
-            ),
-            "remediation": str(
-                parsed.get(
-                    "remediation",
-                    "No remediation steps provided",
-                )
-            ),
-            "confidence": _clamp(
-                parsed.get(
-                    "confidence",
-                    50,
-                )
-            ),
-            "model": settings.GEMINI_MODEL,
+            "summary":     str(parsed.get("summary",     "Unable to determine summary")),
+            "severity":    _validate_severity(parsed.get("severity")),
+            "root_cause":  str(parsed.get("root_cause",  "Unknown")),
+            "remediation": str(parsed.get("remediation", "No remediation steps provided")),
+            "confidence":  _clamp(parsed.get("confidence", 50)),
+            "model":       settings.GEMINI_MODEL,
         }
 
     except Exception as exc:
         logger.exception("AI analysis failed")
-
         return {
-            "summary": "AI service temporarily unavailable",
-            "severity": "Medium",
-            "root_cause": str(exc),
+            "summary":     "AI service temporarily unavailable",
+            "severity":    "Medium",
+            "root_cause":  str(exc),
             "remediation": (
                 "Retry the analysis. "
                 "If the issue persists, verify Gemini API credentials, "
                 "quota limits, and service availability."
             ),
-            "confidence": 0,
-            "model": settings.GEMINI_MODEL,
-        }
-
-    except Exception as exc:
-        logger.exception("AI analysis failed")
-
-        return {
-            "summary": "AI service temporarily unavailable",
-            "severity": "Medium",
-            "root_cause": str(exc),
-            "remediation": (
-                "Retry the analysis. "
-                "If the issue persists, verify Gemini API credentials, "
-                "quota limits, and service availability."
-            ),
-            "confidence": 0,
-            "model": settings.GEMINI_MODEL,
+            "confidence":  0,
+            "model":       settings.GEMINI_MODEL,
         }
 
 
 def _validate_severity(value: str | None) -> str:
     if value in {"Low", "Medium", "High", "Critical"}:
         return value
-
     return "Medium"
 
 
