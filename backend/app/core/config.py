@@ -6,6 +6,7 @@ class Settings(BaseSettings):
     APP_NAME: str    = "OpsPilot AI"
     APP_VERSION: str = "1.0.0"
     DEBUG: bool      = False
+    GEMINI_MODEL: str = "gemini-2.5-flash"
 
     # Auth
     API_KEY: str = "change-this-secret-api-key"
