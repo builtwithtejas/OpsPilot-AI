@@ -55,17 +55,13 @@ def _get_model():
     )
 
 def _extract_json(raw: str) -> dict:
-    """
-    Makes Gemini responses much more reliable.
-    Handles:
-    - markdown fences
-    - extra text before/after JSON
-    - malformed wrapper text
-    """
+    import json
+    import re
 
     raw = raw.strip()
 
-    raw = re.sub(r"^```(?:json)?\s*", "", raw)
+    # Remove markdown fences
+    raw = re.sub(r"^```json\s*", "", raw)
     raw = re.sub(r"\s*```$", "", raw)
 
     try:
@@ -73,13 +69,13 @@ def _extract_json(raw: str) -> dict:
     except Exception:
         pass
 
-    match = re.search(r"\{.*\}", raw, re.DOTALL)
+    start = raw.find("{")
+    end = raw.rfind("}")
 
-    if match:
-        return json.loads(match.group())
+    if start != -1 and end != -1 and end > start:
+        return json.loads(raw[start:end + 1])
 
     raise ValueError("No valid JSON object found in Gemini response")
-
 
 @retry(
     stop=stop_after_attempt(2),
