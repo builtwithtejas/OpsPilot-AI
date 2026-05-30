@@ -5,6 +5,10 @@ import type {
 
 const BASE    = process.env.NEXT_PUBLIC_API_URL  ?? "http://localhost:8000";
 const API_KEY = process.env.NEXT_PUBLIC_API_KEY ?? "";
+console.log("API_KEY =", API_KEY);
+console.log("BASE =", BASE);
+
+
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
