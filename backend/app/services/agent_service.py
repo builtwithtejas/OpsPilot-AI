@@ -108,11 +108,20 @@ async def run_agent(db: Session, project_id: str, pipeline_id: int | None = None
     try:
         jobs = await get_pipeline_jobs(project_id, pipeline_id)
 
-        failed_jobs = [
-            j for j in jobs
-            if j["status"] == "failed"
-        ]
+        logger.info("Retrieved %d jobs", len(jobs))
 
+        for job in jobs:
+            logger.info(
+        "Job: id=%s name=%s status=%s",
+        job.get("id"),
+        job.get("name"),
+        job.get("status"),
+    )
+
+        failed_jobs = [
+        j for j in jobs
+        if j["status"] == "failed"
+    ]
         log_text = _build_log_text(
             run.steps[0].result,
             failed_jobs,
