@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from urllib.parse import quote
+
 import httpx
 from app.core.config import settings
 from app.utils.logger import logger
@@ -13,6 +15,16 @@ def _base() -> str:
     return f"{settings.GITLAB_BASE_URL}/api/v4"
 
 
+def _encode_project(project_id: str | int) -> str:
+    """
+    GitLab API requires namespace/project to be URL-encoded (%2F not /).
+    Numeric IDs pass through unchanged.
+    e.g. "opspilot-ai-hackathon/opspilot-demo" → "opspilot-ai-hackathon%2Fopspilot-demo"
+         82734152 → "82734152"
+    """
+    return quote(str(project_id), safe="")
+
+
 async def create_gitlab_issue(
     project_id: str | int,
     title: str,
@@ -20,6 +32,7 @@ async def create_gitlab_issue(
     labels: list[str] | None = None,
 ) -> dict:
     """Create a GitLab issue for an incident."""
+    pid = _encode_project(project_id)
     payload = {
         "title": title,
         "description": description,
@@ -27,7 +40,7 @@ async def create_gitlab_issue(
     }
     async with httpx.AsyncClient(timeout=10) as client:
         resp = await client.post(
-            f"{_base()}/projects/{project_id}/issues",
+            f"{_base()}/projects/{pid}/issues",
             json=payload,
             headers=_headers(),
         )
@@ -39,9 +52,10 @@ async def create_gitlab_issue(
 
 async def get_failed_pipelines(project_id: str | int, limit: int = 5) -> list[dict]:
     """Fetch recent failed CI/CD pipelines from GitLab."""
+    pid = _encode_project(project_id)
     async with httpx.AsyncClient(timeout=10) as client:
         resp = await client.get(
-            f"{_base()}/projects/{project_id}/pipelines",
+            f"{_base()}/projects/{pid}/pipelines",
             params={"status": "failed", "per_page": limit},
             headers=_headers(),
         )
@@ -62,9 +76,10 @@ async def get_failed_pipelines(project_id: str | int, limit: int = 5) -> list[di
 
 async def get_pipeline_jobs(project_id: str | int, pipeline_id: int) -> list[dict]:
     """Get jobs for a specific pipeline to identify which step failed."""
+    pid = _encode_project(project_id)
     async with httpx.AsyncClient(timeout=10) as client:
         resp = await client.get(
-            f"{_base()}/projects/{project_id}/pipelines/{pipeline_id}/jobs",
+            f"{_base()}/projects/{pid}/pipelines/{pipeline_id}/jobs",
             headers=_headers(),
         )
         resp.raise_for_status()
@@ -88,20 +103,15 @@ async def get_job_trace(
     project_id: str | int,
     job_id: int,
 ) -> str:
-    """
-    Fetch raw GitLab job logs.
-    """
-
+    """Fetch raw GitLab job logs."""
+    pid = _encode_project(project_id)
     async with httpx.AsyncClient(timeout=20) as client:
         resp = await client.get(
-            f"{_base()}/projects/{project_id}/jobs/{job_id}/trace",
+            f"{_base()}/projects/{pid}/jobs/{job_id}/trace",
             headers=_headers(),
         )
-
         resp.raise_for_status()
-
         return resp.text
-
 
 
 async def post_pipeline_comment(
@@ -110,10 +120,10 @@ async def post_pipeline_comment(
     comment: str,
 ) -> dict:
     """Post a comment on the merge request associated with this pipeline."""
-    # Get MR associated with pipeline
+    pid = _encode_project(project_id)
     async with httpx.AsyncClient(timeout=10) as client:
         mr_resp = await client.get(
-            f"{_base()}/projects/{project_id}/pipelines/{pipeline_id}/merge_requests",
+            f"{_base()}/projects/{pid}/pipelines/{pipeline_id}/merge_requests",
             headers=_headers(),
         )
         if mr_resp.status_code != 200 or not mr_resp.json():
@@ -121,7 +131,7 @@ async def post_pipeline_comment(
 
         mr_iid = mr_resp.json()[0]["iid"]
         note_resp = await client.post(
-            f"{_base()}/projects/{project_id}/merge_requests/{mr_iid}/notes",
+            f"{_base()}/projects/{pid}/merge_requests/{mr_iid}/notes",
             json={"body": comment},
             headers=_headers(),
         )
