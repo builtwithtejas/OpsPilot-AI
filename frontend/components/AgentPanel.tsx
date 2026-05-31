@@ -71,7 +71,7 @@ export default function AgentPanel() {
         </div>
         <div>
           <div style={{ fontWeight: 700, fontSize: "16px" }}>OpsPilot Autonomous Agent</div>
-          <div style={{ fontSize: "13px", color: "var(--text-tertiary)" }}>Gemini 1.5 Flash × GitLab MCP · 6-step orchestrated pipeline</div>
+          <div style={{ fontSize: "13px", color: "var(--text-tertiary)" }}>Gemini 2.5 Flash × GitLab MCP · 6-step orchestrated pipeline</div>
         </div>
       </div>
 
