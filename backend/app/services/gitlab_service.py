@@ -128,3 +128,34 @@ async def post_pipeline_comment(
         note_resp.raise_for_status()
         logger.info("Posted OpsPilot comment on MR !%s", mr_iid)
         return {"mr_iid": mr_iid, "note_id": note_resp.json()["id"]}
+
+
+async def trigger_duo_agent(project_id: str, incident_summary: str, issue_url: str) -> dict:
+    """Notify the GitLab Duo Agent Platform about a new incident."""
+    if not settings.GITLAB_MCP_URL or not settings.GITLAB_AGENT_ID:
+        logger.warning("GitLab Duo agent not configured — skipping")
+        return {"skipped": True}
+    try:
+        payload = {
+            "content": (
+                f"New CI/CD incident detected in project {project_id}.\n"
+                f"Summary: {incident_summary}\n"
+                f"GitLab Issue: {issue_url}\n"
+                f"Please analyse and suggest additional remediation steps."
+            )
+        }
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.post(
+                f"{settings.GITLAB_BASE_URL}/api/v4/ai/agents/{settings.GITLAB_AGENT_ID}/chat",
+                json=payload,
+                headers=_headers(),
+            )
+            if resp.status_code in (200, 201):
+                logger.info("GitLab Duo agent notified for project %s", project_id)
+                return {"notified": True, "agent_id": settings.GITLAB_AGENT_ID}
+            else:
+                logger.warning("Duo agent returned %s: %s", resp.status_code, resp.text)
+                return {"notified": False, "status": resp.status_code}
+    except Exception as exc:
+        logger.warning("Duo agent notification failed (non-fatal): %s", exc)
+        return {"error": str(exc)}

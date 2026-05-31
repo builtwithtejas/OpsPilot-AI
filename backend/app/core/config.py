@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     GEMINI_MODEL: str = "gemini-2.5-flash"
 
     # Auth
-    API_KEY: str = "change-this-secret-api-key"
+    API_KEY: str = ""
 
     # ── Google Cloud / Gemini (hackathon required) ──────────────────
     GEMINI_API_KEY:        str = ""   # from Google AI Studio
@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     # ── GitLab MCP ─────────────────────────────────────────────────
     GITLAB_TOKEN:    str = ""   # GitLab Personal Access Token
     GITLAB_BASE_URL: str = "https://gitlab.com"
+    # ── GitLab Duo Agent Platform ───────────────────────────────────
+    GITLAB_AGENT_ID:  str = "1009889"
+    GITLAB_MCP_URL:   str = "https://gitlab.com/api/v4/ai/agents/1009889/mcp"
+    GITLAB_GROUP:     str = "opspilot-ai-hackathon"
 
     # ── Notifications ───────────────────────────────────────────────
     SLACK_WEBHOOK_URL: str = ""
@@ -31,9 +35,6 @@ class Settings(BaseSettings):
     ALERT_EMAIL_TO:    str = ""
     ALERT_EMAIL_FROM:  str = "alerts@opspilot.ai"
     FRONTEND_URL:      str = "http://localhost:3000"
-
-    # ── Groq (kept for streaming chat fallback) ─────────────────────
-    GROQ_API_KEY: str = ""
 
     # ── Database ────────────────────────────────────────────────────
     DATABASE_URL: str = "sqlite:///./opspilot.db"

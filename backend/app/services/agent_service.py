@@ -32,6 +32,7 @@ from app.services.gitlab_service import (
     get_pipeline_jobs,
     get_job_trace,
     post_pipeline_comment,
+    trigger_duo_agent,
 )
 from app.services.incident_service import create_incident
 from app.services.notification_service import notify_all
@@ -58,7 +59,7 @@ class AgentRun:
     status: str = "running"
 
 
-async def run_agent(db: Session, project_id: str, pipeline_id: int | None = None) -> AgentRun:
+async def run_agent(db: Session, project_id: str, pipeline_id: int | None = None, triggered_by: str = "manual") -> AgentRun:
     """
     Main agent entry point.
     If pipeline_id is given, analyse that specific pipeline.
@@ -259,6 +260,28 @@ async def run_agent(db: Session, project_id: str, pipeline_id: int | None = None
     except Exception as exc:
         step6.status = "failed"
         step6.error = str(exc)
+
+# ── Step 7: GitLab Duo Agent Platform ─────────────────────────
+    step7 = AgentStep(name="duo_agent_platform")
+    run.steps.append(step7)
+    step7.status = "running"
+    try:
+        duo_result = await trigger_duo_agent(
+            project_id=project_id,
+            incident_summary=analysis["summary"],
+            issue_url=run.gitlab_issue_url or "N/A",
+        )
+        step7.result = {
+            **duo_result,
+            "triggered_by": triggered_by,
+            "agent_id": settings.GITLAB_AGENT_ID,
+        }
+        step7.status = "done"
+        logger.info("[%s] Step 7 done — Duo agent notified", run.run_id)
+    except Exception as exc:
+        step7.status = "failed"
+        step7.error = str(exc)
+        logger.warning("[%s] Step 7 failed (non-fatal): %s", run.run_id, exc)
 
     run.status = "completed"
     logger.info("[%s] Agent run complete — incident #%d, issue: %s", run.run_id, incident.id, run.gitlab_issue_url)
