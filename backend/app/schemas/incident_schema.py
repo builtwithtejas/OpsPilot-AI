@@ -18,9 +18,9 @@ class IncidentCreate(BaseModel):
 
     confidence: int = Field(..., ge=0, le=100)
 
-    # NEW
-    source: str = "GitLab"
-    pipeline_id: int | None = None
+    # GitLab metadata
+    source: str | None = None
+    pipeline_id: str | None = None
     gitlab_issue_url: str | None = None
 
 
@@ -35,7 +35,7 @@ class IncidentUpdate(BaseModel):
     confidence: int | None = Field(None, ge=0, le=100)
 
     source: str | None = None
-    pipeline_id: int | None = None
+    pipeline_id: str | None = None
     gitlab_issue_url: str | None = None
 
 
@@ -51,7 +51,7 @@ class IncidentResponse(BaseModel):
     confidence: int
 
     source: str | None = None
-    pipeline_id: int | None = None
+    pipeline_id: str | None = None
     gitlab_issue_url: str | None = None
 
     created_at: datetime

@@ -6,19 +6,48 @@ import { Send, Bot, User, X } from "lucide-react";
 interface Message { role: "user" | "assistant"; content: string; }
 
 interface Props {
-  incidentId: number;
+  incidentId:    number;
   incidentTitle: string;
-  onClose: () => void;
+  onClose:       () => void;
 }
 
-const BASE     = process.env.NEXT_PUBLIC_API_URL  ?? "http://localhost:8000";
-const API_KEY  = process.env.NEXT_PUBLIC_API_KEY ?? "";
+const BASE    = process.env.NEXT_PUBLIC_API_URL  ?? "http://localhost:8000";
+const API_KEY = process.env.NEXT_PUBLIC_API_KEY ?? "";
+
+/** Render markdown bold (**text**) and code (`code`) safely — no innerHTML, no XSS. */
+function SafeMarkdown({ text }: { text: string }) {
+  const parts: React.ReactNode[] = [];
+  // Split on **bold** and `code` patterns
+  const regex = /(\*\*[^*]+\*\*|`[^`]+`)/g;
+  let last = 0;
+  let match;
+
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > last) {
+      parts.push(text.slice(last, match.index));
+    }
+    const token = match[0];
+    if (token.startsWith("**")) {
+      parts.push(<strong key={match.index}>{token.slice(2, -2)}</strong>);
+    } else if (token.startsWith("`")) {
+      parts.push(
+        <code key={match.index} style={{ background: "rgba(255,255,255,0.1)", padding: "1px 5px", borderRadius: "4px", fontSize: "12px", fontFamily: "monospace" }}>
+          {token.slice(1, -1)}
+        </code>
+      );
+    }
+    last = match.index + token.length;
+  }
+
+  if (last < text.length) parts.push(text.slice(last));
+  return <>{parts}</>;
+}
 
 export default function ChatPanel({ incidentId, incidentTitle, onClose }: Props) {
   const [messages, setMessages] = useState<Message[]>([
     { role: "assistant", content: `Hi! I'm here to help with incident **#${incidentId}**. Ask me anything about the root cause, remediation steps, or similar past issues.` }
   ]);
-  const [input, setInput] = useState("");
+  const [input, setInput]       = useState("");
   const [streaming, setStreaming] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef  = useRef<HTMLInputElement>(null);
@@ -33,23 +62,21 @@ export default function ChatPanel({ incidentId, incidentTitle, onClose }: Props)
     setMessages(newHistory);
     setInput("");
     setStreaming(true);
-
-    // Add placeholder assistant message
     setMessages(prev => [...prev, { role: "assistant", content: "" }]);
 
     try {
       const res = await fetch(`${BASE}/chat/stream`, {
-        method: "POST",
+        method:  "POST",
         headers: { "Content-Type": "application/json", "X-API-Key": API_KEY },
         body: JSON.stringify({
           incident_id: incidentId,
-          messages: newHistory.map(m => ({ role: m.role, content: m.content })),
+          messages:    newHistory.map(m => ({ role: m.role, content: m.content })),
         }),
       });
 
       if (!res.ok || !res.body) throw new Error("Stream failed");
 
-      const reader = res.body.getReader();
+      const reader  = res.body.getReader();
       const decoder = new TextDecoder();
       let accumulated = "";
 
@@ -75,11 +102,6 @@ export default function ChatPanel({ incidentId, incidentTitle, onClose }: Props)
     }
   }
 
-  function renderContent(content: string) {
-    // Simple bold markdown rendering
-    return content.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
-  }
-
   return (
     <div style={{
       position: "fixed", bottom: "24px", right: "24px", width: "min(420px, 95vw)",
@@ -98,7 +120,7 @@ export default function ChatPanel({ incidentId, incidentTitle, onClose }: Props)
             Incident #{incidentId} — {incidentTitle}
           </div>
         </div>
-        <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-tertiary)", display: "flex" }}>
+        <button onClick={onClose} aria-label="Close chat" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-tertiary)", display: "flex" }}>
           <X size={16} />
         </button>
       </div>
@@ -115,7 +137,8 @@ export default function ChatPanel({ incidentId, incidentTitle, onClose }: Props)
               {msg.role === "user" ? <User size={14} color="black" /> : <Bot size={14} color="var(--accent)" />}
             </div>
             <div style={{
-              maxWidth: "78%", padding: "10px 14px", borderRadius: msg.role === "user" ? "16px 4px 16px 16px" : "4px 16px 16px 16px",
+              maxWidth: "78%", padding: "10px 14px",
+              borderRadius: msg.role === "user" ? "16px 4px 16px 16px" : "4px 16px 16px 16px",
               background: msg.role === "user" ? "rgba(57,255,136,0.12)" : "rgba(255,255,255,0.04)",
               border: `1px solid ${msg.role === "user" ? "rgba(57,255,136,0.25)" : "var(--border)"}`,
               fontSize: "13px", lineHeight: 1.6, color: "var(--text-primary)",
@@ -123,7 +146,8 @@ export default function ChatPanel({ incidentId, incidentTitle, onClose }: Props)
               {msg.content === "" && streaming ? (
                 <span style={{ display: "inline-block", width: "8px", height: "14px", background: "var(--accent)", animation: "blink 0.8s step-end infinite" }} />
               ) : (
-                <span dangerouslySetInnerHTML={{ __html: renderContent(msg.content) }} />
+                /* Safe React rendering — no innerHTML, no XSS risk */
+                <SafeMarkdown text={msg.content} />
               )}
             </div>
           </div>
@@ -133,22 +157,31 @@ export default function ChatPanel({ incidentId, incidentTitle, onClose }: Props)
 
       {/* Input */}
       <div style={{ padding: "12px 16px", borderTop: "1px solid var(--border)", display: "flex", gap: "10px" }}>
-        <input ref={inputRef} value={input} onChange={e => setInput(e.target.value)}
+        <input
+          ref={inputRef}
+          value={input}
+          onChange={e => setInput(e.target.value)}
           onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } }}
           placeholder="Ask about this incident..."
           disabled={streaming}
+          aria-label="Chat message input"
           style={{
             flex: 1, background: "var(--input-bg)", border: "1px solid var(--border)",
             borderRadius: "12px", padding: "10px 14px", color: "var(--text-primary)",
             fontSize: "13px", outline: "none",
-          }} />
-        <button onClick={() => void send()} disabled={!input.trim() || streaming}
+          }}
+        />
+        <button
+          onClick={() => void send()}
+          disabled={!input.trim() || streaming}
+          aria-label="Send message"
           style={{
             width: "40px", height: "40px", borderRadius: "12px", border: "none",
             background: input.trim() && !streaming ? "linear-gradient(135deg,#33ff88,#00c3ff)" : "var(--input-bg)",
             cursor: input.trim() && !streaming ? "pointer" : "not-allowed",
             display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
-          }}>
+          }}
+        >
           <Send size={16} color={input.trim() && !streaming ? "black" : "var(--text-tertiary)"} />
         </button>
       </div>
