@@ -48,3 +48,6 @@ def delete_incident(db: Session, incident_id: int) -> bool:
     db.delete(incident)
     db.commit()
     return True
+
+def get_incident_by_pipeline_id(db: Session, pipeline_id: str):
+    return db.query(Incident).filter(Incident.pipeline_id == pipeline_id).first()

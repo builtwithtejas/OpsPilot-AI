@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     GITLAB_AGENT_ID:  str = "1009889"
     GITLAB_MCP_URL:   str = "https://gitlab.com/api/v4/ai/agents/1009889/mcp"
     GITLAB_GROUP:     str = "opspilot-ai-hackathon"
+    GITLAB_WEBHOOK_SECRET: str = ""
 
     # ── Notifications ───────────────────────────────────────────────
     SLACK_WEBHOOK_URL: str = ""
