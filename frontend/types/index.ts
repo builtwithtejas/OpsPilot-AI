@@ -14,6 +14,7 @@ export interface Incident {
   gitlab_issue_url: string | null;
   created_at:       string;
   updated_at:       string;
+  autofix_mr_url?: string | null;
 }
 
 export interface WorkflowRun {
@@ -104,3 +105,4 @@ export interface GitLabJob {
   failure_reason: string | null;
   web_url:        string;
 }
+

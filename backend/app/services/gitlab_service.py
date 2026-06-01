@@ -169,3 +169,133 @@ async def trigger_duo_agent(project_id: str, incident_summary: str, issue_url: s
     except Exception as exc:
         logger.warning("Duo agent notification failed (non-fatal): %s", exc)
         return {"error": str(exc)}
+async def create_fix_branch(
+    project_id: str | int,
+    incident_id: int,
+    base_sha: str,
+) -> str:
+    """Create a new branch for the auto-fix MR."""
+    pid = _encode_project(project_id)
+    branch_name = f"opspilot/fix-incident-{incident_id}"
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.post(
+            f"{_base()}/projects/{pid}/repository/branches",
+            json={"branch": branch_name, "ref": base_sha},
+            headers=_headers(),
+        )
+        if resp.status_code == 400 and "already exists" in resp.text:
+            logger.info("Branch %s already exists — reusing", branch_name)
+            return branch_name
+        resp.raise_for_status()
+        logger.info("Created fix branch: %s", branch_name)
+        return branch_name
+
+
+async def commit_fix(
+    project_id: str | int,
+    branch_name: str,
+    incident_id: int,
+    filename: str,
+    content: str,
+    commit_message: str,
+) -> dict:
+    """Commit the Gemini-generated fix to the branch."""
+    pid = _encode_project(project_id)
+    payload = {
+        "branch": branch_name,
+        "commit_message": commit_message,
+        "actions": [
+            {
+                "action": "update",
+                "file_path": filename,
+                "content": content,
+            }
+        ],
+    }
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.post(
+            f"{_base()}/projects/{pid}/repository/commits",
+            json=payload,
+            headers=_headers(),
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        logger.info("Committed fix to branch %s: %s", branch_name, commit_message)
+        return {"sha": data["id"], "branch": branch_name}
+
+
+async def create_fix_mr(
+    project_id: str | int,
+    branch_name: str,
+    incident_id: int,
+    title: str,
+    description: str,
+    target_branch: str = "main",
+) -> dict:
+    """Open a Merge Request for the auto-fix branch."""
+    pid = _encode_project(project_id)
+    payload = {
+        "source_branch": branch_name,
+        "target_branch": target_branch,
+        "title": title,
+        "description": description,
+        "labels": "opspilot-autofix,incident",
+        "remove_source_branch": True,
+    }
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.post(
+            f"{_base()}/projects/{pid}/merge_requests",
+            json=payload,
+            headers=_headers(),
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        logger.info("Auto-fix MR !%s created: %s", data["iid"], data["web_url"])
+        return {
+            "iid": data["iid"],
+            "url": data["web_url"],
+            "title": data["title"],
+            "branch": branch_name,
+        }
+
+
+async def get_file_content(
+    project_id: str | int,
+    file_path: str,
+    ref: str = "main",
+) -> dict:
+    """Get file content from GitLab repository."""
+    pid = _encode_project(project_id)
+    encoded_path = quote(file_path, safe="")
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.get(
+            f"{_base()}/projects/{pid}/repository/files/{encoded_path}",
+            params={"ref": ref},
+            headers=_headers(),
+        )
+        if resp.status_code == 404:
+            return {}
+        resp.raise_for_status()
+        import base64
+        data = resp.json()
+        content = base64.b64decode(data["content"]).decode("utf-8", errors="replace")
+        return {"content": content, "sha": data["blob_id"]}
+
+
+async def get_latest_commit_sha(
+    project_id: str | int,
+    ref: str = "main",
+) -> str:
+    """Get the latest commit SHA for a branch."""
+    pid = _encode_project(project_id)
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.get(
+            f"{_base()}/projects/{pid}/repository/commits",
+            params={"ref_name": ref, "per_page": 1},
+            headers=_headers(),
+        )
+        resp.raise_for_status()
+        commits = resp.json()
+        if not commits:
+            raise ValueError(f"No commits found on branch {ref}")
+        return commits[0]["id"]

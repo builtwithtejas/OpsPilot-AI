@@ -37,6 +37,7 @@ class IncidentUpdate(BaseModel):
     source: str | None = None
     pipeline_id: str | None = None
     gitlab_issue_url: str | None = None
+    
 
 
 class IncidentResponse(BaseModel):
@@ -53,6 +54,7 @@ class IncidentResponse(BaseModel):
     source: str | None = None
     pipeline_id: str | None = None
     gitlab_issue_url: str | None = None
+    autofix_mr_url: str | None = None
 
     created_at: datetime
     updated_at: datetime

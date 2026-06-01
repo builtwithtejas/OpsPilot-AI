@@ -18,6 +18,8 @@ class Incident(Base):
     source           = Column(String, nullable=True)           # "agent" | "upload" | "webhook"
     pipeline_id      = Column(String, nullable=True)           # GitLab pipeline ID
     gitlab_issue_url = Column(String, nullable=True)           # link to auto-created GitLab issue
+    # add after gitlab_issue_url:
+    autofix_mr_url   = Column(String, nullable=True)  # link to auto-fix MR
 
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     updated_at = Column(

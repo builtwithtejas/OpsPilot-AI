@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
 import ChatPanel from "@/components/ChatPanel";
 import SimilarIncidents from "@/components/SimilarIncidents";
+import AutoFixButton from "@/components/AutoFixButton";
 import { severityColor, statusColor, timeAgo } from "@/utils/formatters";
 import { MessageSquare, ArrowLeft, Clock, Link2 } from "lucide-react";
 import type { Incident, IncidentStatus } from "@/types";
@@ -55,7 +56,7 @@ export default function IncidentDetailPage() {
     void navigator.clipboard.writeText(window.location.href).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
   }
 
-  const ACTION_COLORS: Record<string, string> = { created: "#33ff88", status_changed: "#00c3ff", deleted: "#ff4d4d", severity_changed: "#ffb347" };
+  const ACTION_COLORS: Record<string, string> = { created: "#33ff88", status_changed: "#00c3ff", deleted: "#ff4d4d", severity_changed: "#ffb347", autofix_created: "#1E8E3E" };
 
   if (loading) return <AppShell><div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>{[80,300,200,150].map((h,i) => <div key={i} className="skeleton" style={{ height: `${h}px`, borderRadius: "16px" }} />)}</div></AppShell>;
   if (!incident) return null;
@@ -117,31 +118,49 @@ export default function IncidentDetailPage() {
         <div className="progress-bar"><div className="progress-fill" style={{ width: `${incident.confidence}%` }} /></div>
       </div>
 
-      {/* GitLab Issue Link */}
-      {incident.gitlab_issue_url && (
-        <div style={{ marginBottom: "16px" }}>
+      {/* Action buttons row */}
+      <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", marginBottom: "16px" }}>
+        {/* GitLab Issue Link */}
+        {incident.gitlab_issue_url && (
           <a
             href={incident.gitlab_issue_url}
             target="_blank"
             rel="noopener noreferrer"
             style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "8px",
-              padding: "12px 20px",
-              borderRadius: "12px",
+              display: "inline-flex", alignItems: "center", gap: "8px",
+              padding: "12px 20px", borderRadius: "12px",
               background: "linear-gradient(to right,#e24329,#fc6d26)",
-              color: "white",
-              fontWeight: 700,
-              fontSize: "14px",
-              textDecoration: "none",
-              boxShadow: "0 0 20px #fc6d2633",
+              color: "white", fontWeight: 700, fontSize: "14px",
+              textDecoration: "none", boxShadow: "0 0 20px #fc6d2633",
             }}
           >
             🦊 View GitLab Issue →
           </a>
-        </div>
-      )}
+        )}
+
+        {/* Auto-Fix MR */}
+        {incident.autofix_mr_url ? (
+          <a
+            href={incident.autofix_mr_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              display: "inline-flex", alignItems: "center", gap: "8px",
+              padding: "12px 20px", borderRadius: "12px",
+              background: "linear-gradient(to right,#1E8E3E,#34A853)",
+              color: "white", fontWeight: 700, fontSize: "14px",
+              textDecoration: "none", boxShadow: "0 0 20px #1E8E3E33",
+            }}
+          >
+            🤖 View Auto-Fix MR →
+          </a>
+        ) : incident.pipeline_id ? (
+          <AutoFixButton
+            incidentId={incident.id}
+            onFixed={(url) => setIncident(i => i ? { ...i, autofix_mr_url: url } : i)}
+          />
+        ) : null}
+      </div>
 
       {/* Description + Remediation */}
       {[{ label: "Description", value: incident.description }, { label: "Remediation", value: incident.remediation }].map(s => (
@@ -173,7 +192,7 @@ export default function IncidentDetailPage() {
                     {i < audit.length - 1 && <div style={{ position: "absolute", left: "7px", top: "18px", width: "2px", height: "calc(100% - 4px)", background: "var(--border)" }} />}
                     <div style={{ width: "16px", height: "16px", borderRadius: "50%", background: color, flexShrink: 0, marginTop: "2px", zIndex: 1 }} />
                     <div>
-                      <div style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-primary)", textTransform: "capitalize" }}>{entry.action.replace("_", " ")}</div>
+                      <div style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-primary)", textTransform: "capitalize" }}>{entry.action.replace(/_/g, " ")}</div>
                       {entry.detail && <div style={{ fontSize: "12px", color: "var(--text-tertiary)", marginTop: "2px" }}>{entry.detail}</div>}
                       <div style={{ fontSize: "11px", color: "var(--text-tertiary)", marginTop: "3px" }}>{timeAgo(entry.created_at)} · {entry.actor}</div>
                     </div>

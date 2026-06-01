@@ -86,6 +86,10 @@ from app.api.routes.projects import router as projects_router
 # ...
 app.include_router(projects_router)
 
+from app.api.routes.forecast import router as forecast_router
+# ...
+app.include_router(forecast_router)
+
 # ── Root Endpoint ─────────────────────────────────────────────────
 @app.get("/", tags=["Root"])
 def root():

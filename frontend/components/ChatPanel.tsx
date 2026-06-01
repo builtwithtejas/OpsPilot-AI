@@ -171,7 +171,7 @@ export default function ChatPanel({ incidentId, incidentTitle, onClose }: Props)
             fontSize: "13px", outline: "none",
           }}
         />
-        <button
+        <button 
           onClick={() => void send()}
           disabled={!input.trim() || streaming}
           aria-label="Send message"

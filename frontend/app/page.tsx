@@ -15,6 +15,7 @@ import CommandPanel from "@/components/CommandPanel";
 import Charts from "@/components/Charts";
 import ActivityFeed from "@/components/ActivityFeed";
 import LoadingScreen from "@/components/LoadingScreen";
+import ForecastCard from "@/components/ForecastCard";
 import { useAnalytics } from "@/hooks/useAnalytics";
 import { useLogUpload } from "@/hooks/useLogUpload";
 import { useIncidents } from "@/hooks/useIncidents";
@@ -26,7 +27,6 @@ export default function Home() {
   const { incidents } = useIncidents();
   const latestWorkflow = workflows[0] ?? null;
 
-  // R to refresh
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === "r" && !["INPUT","SELECT","TEXTAREA"].includes((document.activeElement as HTMLElement)?.tagName ?? "")) {
@@ -61,7 +61,7 @@ export default function Home() {
         <HealthCard title="API Status"      value={`● ${error ? "Offline" : "Operational"}`}       color={apiColor} />
         <HealthCard title="Backend Latency" value={latency ? `${latency} ms` : "—"}                  color="#00c3ff" />
         <HealthCard title="Total Runs"      value={analytics ? String(analytics.stats.total) : "—"} color="#ffb347" />
-   <HealthCard title="AI Engine" value="GEMINI ACTIVE" color="#4285F4" />
+        <HealthCard title="GitLab Agent"    value="ID #1009889"                                      color="#FC6D26" />
       </div>
 
       {/* System metrics */}
@@ -98,6 +98,9 @@ export default function Home() {
           <StatsCard title="Success Rate"    value={analytics.stats.success_rate ?? 0} color="#ffb347" suffix="%" decimals={1} />
         </div>
       )}
+
+      {/* Predictive Risk Forecast */}
+      <ForecastCard />
 
       {/* Activity feed on dashboard too */}
       {(incidents.length > 0 || workflows.length > 0) && (

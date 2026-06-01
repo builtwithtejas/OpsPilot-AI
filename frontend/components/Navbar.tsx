@@ -48,7 +48,7 @@ export default function Navbar({ searchQuery = "", onSearchChange, notifications
           onClick={e => e.stopPropagation()}
           style={{ background: "transparent", border: "none", outline: "none", color: "var(--text-primary)", width: "100%", fontSize: "14px", cursor: "text" }} />
         {searchQuery
-          ? <button onClick={e => { e.stopPropagation(); onSearchChange?.(""); }} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-tertiary)", padding: 0, display: "flex" }}><X size={14} /></button>
+          ? <button  onClick={e => { e.stopPropagation(); onSearchChange?.(""); }} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-tertiary)", padding: 0, display: "flex" }}><X size={14} /></button>
           : <div style={{ display: "flex", alignItems: "center", gap: "2px", flexShrink: 0 }}><kbd className="kbd">⌘K</kbd></div>
         }
       </div>

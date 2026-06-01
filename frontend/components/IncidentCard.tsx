@@ -48,28 +48,57 @@ export default function IncidentCard({ incident, onStatusChange, onDelete }: Pro
 
           {/* Actions */}
           <div style={{ display: "flex", gap: "6px", flexShrink: 0, flexWrap: "wrap" }}>
-            <select value={incident.status} onChange={e => onStatusChange(incident.id, e.target.value as IncidentStatus)}
-              style={{ background: "var(--input-bg)", border: "1px solid var(--border)", color: "var(--text-primary)", borderRadius: "8px", padding: "6px 8px", fontSize: "12px", cursor: "pointer", outline: "none" }}>
+            <select
+              value={incident.status}
+              onChange={e => onStatusChange(incident.id, e.target.value as IncidentStatus)}
+              aria-label="Change incident status"
+              style={{ background: "var(--input-bg)", border: "1px solid var(--border)", color: "var(--text-primary)", borderRadius: "8px", padding: "6px 8px", fontSize: "12px", cursor: "pointer", outline: "none" }}
+            >
               {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
 
-            <button onClick={() => router.push(`/incidents/${incident.id}`)} title="View detail" style={{ background: "var(--input-bg)", border: "1px solid var(--border)", borderRadius: "8px", padding: "6px 8px", cursor: "pointer", color: "var(--text-secondary)", display: "flex", alignItems: "center" }}>
+            <button
+              onClick={() => router.push(`/incidents/${incident.id}`)}
+              aria-label="View incident detail"
+              title="View detail"
+              style={{ background: "var(--input-bg)", border: "1px solid var(--border)", borderRadius: "8px", padding: "6px 8px", cursor: "pointer", color: "var(--text-secondary)", display: "flex", alignItems: "center" }}
+            >
               <ExternalLink size={13} />
             </button>
 
-            <button onClick={() => setChatOpen(o => !o)} title="AI Chat" style={{ background: chatOpen ? "rgba(57,255,136,0.1)" : "var(--input-bg)", border: `1px solid ${chatOpen ? "var(--accent)" : "var(--border)"}`, borderRadius: "8px", padding: "6px 8px", cursor: "pointer", color: chatOpen ? "var(--accent)" : "var(--text-secondary)", display: "flex", alignItems: "center" }}>
+            <button
+              onClick={() => setChatOpen(o => !o)}
+              aria-label="Open AI chat"
+              title="AI Chat"
+              style={{ background: chatOpen ? "rgba(57,255,136,0.1)" : "var(--input-bg)", border: `1px solid ${chatOpen ? "var(--accent)" : "var(--border)"}`, borderRadius: "8px", padding: "6px 8px", cursor: "pointer", color: chatOpen ? "var(--accent)" : "var(--text-secondary)", display: "flex", alignItems: "center" }}
+            >
               <MessageSquare size={13} />
             </button>
 
-            <button onClick={copyAsMarkdown} title="Copy as Markdown" style={{ background: "var(--input-bg)", border: "1px solid var(--border)", borderRadius: "8px", padding: "6px 8px", cursor: "pointer", color: "var(--text-secondary)", display: "flex", alignItems: "center" }}>
+            <button
+              onClick={copyAsMarkdown}
+              aria-label="Copy incident as Markdown"
+              title="Copy as Markdown"
+              style={{ background: "var(--input-bg)", border: "1px solid var(--border)", borderRadius: "8px", padding: "6px 8px", cursor: "pointer", color: "var(--text-secondary)", display: "flex", alignItems: "center" }}
+            >
               {copied ? <CheckCheck size={13} color="#33ff88" /> : <Copy size={13} />}
             </button>
 
-            <button onClick={() => setExpanded(e => !e)} title="Expand" style={{ background: "var(--input-bg)", border: "1px solid var(--border)", borderRadius: "8px", padding: "6px 8px", cursor: "pointer", color: "var(--text-secondary)", display: "flex", alignItems: "center" }}>
+            <button
+              onClick={() => setExpanded(e => !e)}
+              aria-label={expanded ? "Collapse incident details" : "Expand incident details"}
+              title={expanded ? "Collapse" : "Expand"}
+              style={{ background: "var(--input-bg)", border: "1px solid var(--border)", borderRadius: "8px", padding: "6px 8px", cursor: "pointer", color: "var(--text-secondary)", display: "flex", alignItems: "center" }}
+            >
               {expanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
             </button>
 
-            <button onClick={() => onDelete(incident.id)} title="Delete" style={{ background: "rgba(255,77,77,0.08)", border: "1px solid rgba(255,77,77,0.2)", borderRadius: "8px", padding: "6px 8px", cursor: "pointer", color: "#ff4d4d", display: "flex", alignItems: "center" }}>
+            <button
+              onClick={() => onDelete(incident.id)}
+              aria-label="Delete incident"
+              title="Delete"
+              style={{ background: "rgba(255,77,77,0.08)", border: "1px solid rgba(255,77,77,0.2)", borderRadius: "8px", padding: "6px 8px", cursor: "pointer", color: "#ff4d4d", display: "flex", alignItems: "center" }}
+            >
               <Trash2 size={13} />
             </button>
           </div>
