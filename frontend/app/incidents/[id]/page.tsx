@@ -117,6 +117,32 @@ export default function IncidentDetailPage() {
         <div className="progress-bar"><div className="progress-fill" style={{ width: `${incident.confidence}%` }} /></div>
       </div>
 
+      {/* GitLab Issue Link */}
+      {incident.gitlab_issue_url && (
+        <div style={{ marginBottom: "16px" }}>
+          <a
+            href={incident.gitlab_issue_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "8px",
+              padding: "12px 20px",
+              borderRadius: "12px",
+              background: "linear-gradient(to right,#e24329,#fc6d26)",
+              color: "white",
+              fontWeight: 700,
+              fontSize: "14px",
+              textDecoration: "none",
+              boxShadow: "0 0 20px #fc6d2633",
+            }}
+          >
+            🦊 View GitLab Issue →
+          </a>
+        </div>
+      )}
+
       {/* Description + Remediation */}
       {[{ label: "Description", value: incident.description }, { label: "Remediation", value: incident.remediation }].map(s => (
         <div key={s.label} style={{ background: "var(--card-bg)", border: "1px solid var(--border)", borderRadius: "16px", padding: "20px", marginBottom: "16px", backdropFilter: "blur(12px)" }}>
