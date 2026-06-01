@@ -86,7 +86,7 @@ def _extract_json(raw: str) -> dict:
     stop=stop_after_attempt(2),
     wait=wait_exponential(multiplier=1, min=1, max=4),
 )
-def analyze_logs(logs: str) -> dict:
+def analyze_logs(logs: str, memory_context: str = "") -> dict:
     try:
         model = _get_model()
 
@@ -94,7 +94,8 @@ def analyze_logs(logs: str) -> dict:
         MAX_LOG_CHARS = 2500
         logs = logs[:MAX_LOG_CHARS]
 
-        prompt = f"{_SYSTEM_PROMPT}\n\nLogs:\n\n{logs}"
+        memory_section = f"\n\nHistorical context from past incidents:\n{memory_context}" if memory_context else ""
+        prompt = f"{_SYSTEM_PROMPT}\n\nLogs:\n\n{logs}{memory_section}"
 
         response = model.generate_content(
             prompt,

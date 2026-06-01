@@ -35,7 +35,7 @@ from app.services.gitlab_service import (
 from app.services.incident_service import create_incident
 from app.services.notification_service import notify_all
 from app.utils.logger import logger
-
+from app.services.incident_service import create_incident, get_incident_by_pipeline_id, get_incidents_summary_for_memory
 
 @dataclass
 class AgentStep:
@@ -140,7 +140,8 @@ async def run_agent(
     run.steps.append(step3)
     step3.status = "running"
     try:
-        analysis = analyze_logs(log_text)
+        memory_context = get_incidents_summary_for_memory(db)
+        analysis = analyze_logs(log_text, memory_context=memory_context)
         step3.result = analysis
         step3.status = "done"
         logger.info("[%s] Step 3 done — severity: %s, confidence: %s%%", run.run_id, analysis["severity"], analysis["confidence"])

@@ -16,6 +16,7 @@ from app.middleware.error_handler import (
 )
 from app.models import incident, deployment, audit_log  # noqa: F401
 from app.utils.logger import logger
+from app.models.monitored_project import MonitoredProject  # noqa: F401
 
 # ── Rate limiter ──────────────────────────────────────────────────
 limiter = Limiter(
@@ -81,7 +82,9 @@ app.add_exception_handler(
 
 # ── Routes ────────────────────────────────────────────────────────
 app.include_router(api_router)
-
+from app.api.routes.projects import router as projects_router
+# ...
+app.include_router(projects_router)
 
 # ── Root Endpoint ─────────────────────────────────────────────────
 @app.get("/", tags=["Root"])
