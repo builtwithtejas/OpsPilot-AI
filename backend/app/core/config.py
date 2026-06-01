@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     FRONTEND_URL:      str = "http://localhost:3000"
 
     # ── Database ────────────────────────────────────────────────────
-    DATABASE_URL: str = "sqlite:///./opspilot.db"
+    DATABASE_URL: str = ""
 
     # ── CORS ────────────────────────────────────────────────────────
     ALLOWED_ORIGINS: str = "http://localhost:3000"
