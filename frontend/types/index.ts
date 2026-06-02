@@ -106,3 +106,11 @@ export interface GitLabJob {
   web_url:        string;
 }
 
+export interface Project {
+  id: number;
+  gitlab_project_id: string;
+  name: string;
+  description: string | null;
+  active: boolean;
+  created_at: string;
+}

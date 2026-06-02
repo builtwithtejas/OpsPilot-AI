@@ -1,17 +1,18 @@
 "use client";
 
 import { usePathname, useRouter } from "next/navigation";
-import { LayoutDashboard, AlertTriangle, BarChart3, Rocket, Server, Settings, Bot, Sun, Moon } from "lucide-react";
+import { LayoutDashboard, AlertTriangle, BarChart3, Rocket, Server, Settings, Bot, Sun, Moon, FolderGit2 } from "lucide-react";
 import { useTheme } from "@/context/ThemeContext";
 
 const NAV = [
   { name: "Dashboard",      icon: LayoutDashboard, href: "/"               },
   { name: "Agent",          icon: Bot,             href: "/agent"          },
   { name: "Incidents",      icon: AlertTriangle,   href: "/incidents"      },
-  { name: "Analytics",      icon: BarChart3,        href: "/analytics"      },
-  { name: "Deployments",    icon: Rocket,           href: "/deployments"    },
-  { name: "Infrastructure", icon: Server,           href: "/infrastructure" },
-  { name: "Settings",       icon: Settings,         href: "/settings"       },
+  { name: "Projects",       icon: FolderGit2,      href: "/projects"       },  // ← add this line
+  { name: "Analytics",      icon: BarChart3,       href: "/analytics"      },
+  { name: "Deployments",    icon: Rocket,          href: "/deployments"    },
+  { name: "Infrastructure", icon: Server,          href: "/infrastructure" },
+  { name: "Settings",       icon: Settings,        href: "/settings"       },
 ];
 
 export default function Sidebar() {

@@ -7,7 +7,7 @@ const BASE    = process.env.NEXT_PUBLIC_API_URL  ?? "http://localhost:8000";
 const API_KEY = process.env.NEXT_PUBLIC_API_KEY ?? "";
 console.log("API_KEY =", API_KEY);
 console.log("BASE =", BASE);
-
+import type { Project } from "@/types";
 
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -26,6 +26,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 export const fetchWorkflows = () => request<WorkflowRun[]>("/github/workflows");
 export const fetchAnalytics = () => request<AnalyticsData>("/github/analytics");
 export const fetchMetrics   = () => request<SystemMetrics>("/metrics/");
+
 
 // ── Incidents ────────────────────────────────────────────────────
 export const fetchIncidents = (skip = 0, limit = 100) =>
@@ -93,3 +94,5 @@ export const downloadIncidentPdf = async (incidents: Incident[], analytics: Anal
   });
   doc.save("OpsPilot-Report.pdf");
 };
+// Projects
+export const fetchProjects = () => request<Project[]>("/projects/");
