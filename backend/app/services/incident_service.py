@@ -87,7 +87,13 @@ def get_incidents_summary_for_memory(db: Session, limit: int = 20) -> str:
     Format recent incidents as context for Gemini agent memory.
     Used to ground analysis against historical patterns.
     """
-    incidents = db.query(Incident).order_by(Incident.created_at.desc()).limit(limit).all()
+    incidents = (
+        db.query(Incident)
+        .filter(Incident.confidence > 0)
+        .order_by(Incident.created_at.desc())
+        .limit(limit)
+        .all()
+    )
     if not incidents:
         return "No historical incidents available."
 

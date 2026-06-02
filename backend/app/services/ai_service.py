@@ -150,7 +150,7 @@ def analyze_logs(logs: str, memory_context: str = "") -> dict:
     try:
         model = _get_model()
 
-        MAX_LOG_CHARS = 2500
+        MAX_LOG_CHARS = 1500
         logs = logs[:MAX_LOG_CHARS]
 
         memory_section = (
@@ -164,7 +164,7 @@ def analyze_logs(logs: str, memory_context: str = "") -> dict:
             generation_config=genai.GenerationConfig(
                 temperature=0,
                 response_mime_type="application/json",
-                max_output_tokens=800,
+                max_output_tokens=1200,
             ),
         )
 
