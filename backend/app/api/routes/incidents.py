@@ -1,8 +1,10 @@
 # backend/app/api/routes/incidents.py
-# FIX: All route functions are now async def and use AsyncSession.
-#      Every service call is awaited.
-#      This is the pattern — apply the same to agent.py, logs.py, ai.py,
-#      projects.py, forecast.py, github_routes.py, gitlab_routes.py.
+#
+# FIX (H-2): Added POST /incidents/{id}/autofix endpoint.
+# AutoFixButton.tsx calls this route; it previously returned 404 because the
+# handler didn't exist. The route fetches the incident, calls generate_auto_fix()
+# from ai_service.py, commits the fix via GitLab, records an audit entry, and
+# persists the MR URL back on the incident row.
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,6 +18,9 @@ from app.services.incident_service import (
 )
 from app.services.audit_service import log_action, get_audit_log
 from app.services.notification_service import notify_all
+from app.services.ai_service import generate_auto_fix
+from app.services.gitlab_service import create_mr_with_fix  # existing helper
+from app.utils.logger import logger
 
 router = APIRouter(prefix="/incidents", tags=["Incidents"], dependencies=[Depends(require_api_key)])
 
@@ -81,3 +86,68 @@ async def remove_incident(incident_id: int, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Incident not found.")
     await log_action(db, incident_id, "deleted", f"Title: {inc.title}")
     await delete_incident(db, incident_id)
+
+
+# ── FIX H-2: Auto-fix endpoint ────────────────────────────────────
+@router.post(
+    "/{incident_id}/autofix",
+    summary="Generate an AI auto-fix MR for the incident",
+    status_code=status.HTTP_200_OK,
+)
+async def autofix_incident(incident_id: int, db: AsyncSession = Depends(get_db)):
+    """
+    Generates a Gemini-powered fix for the failing CI file and opens a GitLab MR.
+
+    Returns:
+        { "mr_url": "https://gitlab.com/..." }
+
+    Raises:
+        404 if incident not found
+        422 if the incident has no associated pipeline (nothing to fix)
+        502 if AI generation or GitLab MR creation fails
+    """
+    inc = await get_incident_by_id(db, incident_id)
+    if not inc:
+        raise HTTPException(status_code=404, detail="Incident not found.")
+
+    if not inc.pipeline_id:
+        raise HTTPException(
+            status_code=422,
+            detail="This incident has no associated pipeline. Auto-fix requires a pipeline_id.",
+        )
+
+    # Generate the fix via Gemini
+    fix = generate_auto_fix(
+        root_cause=inc.description or "",
+        remediation=inc.remediation or "",
+        current_file_content="",  # GitLab service fetches the real file
+    )
+
+    if not fix or not fix.get("fixed_content"):
+        raise HTTPException(
+            status_code=502,
+            detail="AI fix generation failed or returned empty content. Try again.",
+        )
+
+    # Create MR via GitLab
+    try:
+        mr_url = await create_mr_with_fix(
+            project_id=str(inc.pipeline_id),
+            filename=fix["filename"],
+            fixed_content=fix["fixed_content"],
+            commit_message=fix["commit_message"],
+            description=fix["fix_description"],
+            incident_id=incident_id,
+        )
+    except Exception as exc:
+        logger.warning("GitLab MR creation failed for incident #%d: %s", incident_id, exc)
+        raise HTTPException(
+            status_code=502,
+            detail=f"GitLab MR creation failed: {exc}",
+        )
+
+    # Persist MR URL on the incident and log the action
+    await update_incident(db, incident_id, IncidentUpdate(autofix_mr_url=mr_url))
+    await log_action(db, incident_id, "autofix_created", f"MR: {mr_url}")
+
+    return {"mr_url": mr_url}

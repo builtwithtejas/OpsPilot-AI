@@ -1,36 +1,25 @@
 "use client";
+// FIX C-5: Removed NEXT_PUBLIC_API_KEY and direct fetch().
+// Now uses fetchForecast() from lib/api.ts (JWT token proxy, key stays server-side).
 
 import { useEffect, useState } from "react";
-
-const BASE    = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
-const API_KEY = process.env.NEXT_PUBLIC_API_KEY ?? "";
-
-interface Forecast {
-  project: string;
-  risk_type: string;
-  description: string;
-  confidence: number;
-  timeframe: string;
-  recommended_action: string;
-}
+import { fetchForecast, type Forecast } from "@/lib/api";
 
 export default function ForecastCard() {
   const [forecasts, setForecasts] = useState<Forecast[]>([]);
   const [loading, setLoading]     = useState(true);
   const [cached, setCached]       = useState(false);
+  const [error, setError]         = useState("");
 
   async function load(refresh = false) {
     setLoading(true);
+    setError("");
     try {
-      const res = await fetch(
-        `${BASE}/forecast/?refresh=${refresh}`,
-        { headers: { "X-API-Key": API_KEY } }
-      );
-      if (res.ok) {
-        const data = await res.json();
-        setForecasts(data.forecasts ?? []);
-        setCached(data.cached ?? false);
-      }
+      const data = await fetchForecast(refresh);
+      setForecasts(data.forecasts ?? []);
+      setCached(data.cached ?? false);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to load forecast");
     } finally {
       setLoading(false);
     }
@@ -76,6 +65,8 @@ export default function ForecastCard() {
         <div style={{ color: "var(--text-tertiary)", fontSize: "13px" }}>
           Analysing incident patterns...
         </div>
+      ) : error ? (
+        <div style={{ color: "#ff4d4d", fontSize: "13px" }}>⚠ {error}</div>
       ) : forecasts.length === 0 ? (
         <div style={{ color: "var(--text-tertiary)", fontSize: "13px" }}>
           Not enough incident history yet. Run the agent a few times to generate forecasts.

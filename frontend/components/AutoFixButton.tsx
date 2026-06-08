@@ -1,8 +1,10 @@
 "use client";
-import { useState } from "react";
+// FIX C-5: Removed NEXT_PUBLIC_API_KEY and direct fetch().
+// Now uses triggerAutoFix() from lib/api.ts which goes through the JWT token proxy.
+// FIX: The /incidents/{id}/autofix endpoint must exist on the backend (incidents.py).
 
-const BASE    = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
-const API_KEY = process.env.NEXT_PUBLIC_API_KEY ?? "";
+import { useState } from "react";
+import { triggerAutoFix } from "@/lib/api";
 
 export default function AutoFixButton({
   incidentId,
@@ -18,12 +20,7 @@ export default function AutoFixButton({
     setLoading(true);
     setError("");
     try {
-      const res = await fetch(`${BASE}/incidents/${incidentId}/autofix`, {
-        method: "POST",
-        headers: { "X-API-Key": API_KEY },
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "Fix failed");
+      const data = await triggerAutoFix(incidentId);
       onFixed(data.mr_url);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to generate fix");
@@ -35,7 +32,7 @@ export default function AutoFixButton({
   return (
     <div>
       <button
-        onClick={handleFix}
+        onClick={() => void handleFix()}
         disabled={loading}
         style={{
           display: "inline-flex", alignItems: "center", gap: "8px",

@@ -1,7 +1,8 @@
 // frontend/lib/api.ts
-// C-5 FIX: The master API_KEY is no longer NEXT_PUBLIC_API_KEY (which bakes it into
-// the JS bundle). The browser now calls /api/token (a Next.js Route Handler that keeps
-// the key server-side) to obtain a short-lived JWT. All subsequent API calls use that JWT.
+// C-5 FIX: Master API_KEY never sent to browser.
+// Browser calls /api/token (Next.js Route Handler, server-side) to get a short-lived JWT.
+// All API calls use that JWT via the request() wrapper.
+// NEW: autofix endpoint exported here so components never call fetch() directly.
 
 import type {
   AgentRun, AnalyzeResult, AnalyticsData, GitLabJob, GitLabPipeline,
@@ -12,8 +13,6 @@ import type { Project } from "@/types";
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 // ── Token cache ──────────────────────────────────────────────────
-// Fetches a short-lived JWT via our own /api/token Route Handler (server-side proxy).
-// The master API key never leaves the server. Cached in memory, refreshed 30s before expiry.
 let _cachedToken: string | null = null;
 let _tokenExpiry: number = 0;
 
@@ -21,12 +20,8 @@ async function getToken(): Promise<string> {
   if (_cachedToken && Date.now() < _tokenExpiry - 30_000) {
     return _cachedToken;
   }
-  // C-5 FIX: Call our own Route Handler (/api/token) instead of the backend directly.
-  // The Route Handler holds the master API_KEY server-side and exchanges it for a JWT.
   const res = await fetch("/api/token", { method: "POST" });
-  if (!res.ok) {
-    throw new Error("Failed to obtain access token");
-  }
+  if (!res.ok) throw new Error("Failed to obtain access token");
   const data = await res.json() as { access_token: string; expires_in: number };
   _cachedToken = data.access_token;
   _tokenExpiry = Date.now() + data.expires_in * 1000;
@@ -60,11 +55,25 @@ export const fetchMetrics   = () => request<SystemMetrics>("/metrics/");
 export const fetchIncidents = (skip = 0, limit = 100) =>
   request<Incident[]>(`/incidents/?skip=${skip}&limit=${limit}`);
 
+export const fetchIncidentById = (id: number | string) =>
+  request<Incident>(`/incidents/${id}`);
+
+export const fetchIncidentAudit = (id: number | string) =>
+  request<AuditEntry[]>(`/incidents/${id}/audit`);
+
 export const updateIncidentStatus = (id: number, status: string) =>
   request<Incident>(`/incidents/${id}`, { method: "PATCH", body: JSON.stringify({ status }) });
 
 export const deleteIncident = (id: number) =>
   request<void>(`/incidents/${id}`, { method: "DELETE" });
+
+export const createIncident = (payload: Record<string, unknown>) =>
+  request<Incident>("/incidents/", { method: "POST", body: JSON.stringify(payload) });
+
+// ── Auto-fix ─────────────────────────────────────────────────────
+// Calls POST /incidents/{id}/autofix — wired up in the backend incidents route.
+export const triggerAutoFix = (incidentId: number) =>
+  request<{ mr_url: string }>(`/incidents/${incidentId}/autofix`, { method: "POST" });
 
 // ── Logs / AI ────────────────────────────────────────────────────
 export const analyzeLogFile = async (file: File): Promise<AnalyzeResult> => {
@@ -102,6 +111,42 @@ export const triggerWorkflowRerun = (workflowUrl: string) =>
     method: "POST", body: JSON.stringify({ workflow_url: workflowUrl }),
   });
 
+// ── Forecast ─────────────────────────────────────────────────────
+export const fetchForecast = (refresh = false) =>
+  request<{ forecasts: Forecast[]; cached: boolean; generated_at: number }>(
+    `/forecast/?refresh=${refresh}`
+  );
+
+// ── Projects ─────────────────────────────────────────────────────
+export const fetchProjects = () => request<Project[]>("/projects/");
+
+export const registerProject = (payload: { gitlab_project_id: string; name: string; description: string }) =>
+  request<Project>("/projects/", { method: "POST", body: JSON.stringify(payload) });
+
+export const toggleProject = (id: number) =>
+  request<{ id: number; active: boolean }>(`/projects/${id}/toggle`, { method: "PATCH" });
+
+export const removeProject = (id: number) =>
+  request<void>(`/projects/${id}`, { method: "DELETE" });
+
+// ── Chat streaming ────────────────────────────────────────────────
+// Returns the raw Response so the caller can read the stream.
+// FIX: uses getToken() instead of NEXT_PUBLIC_API_KEY.
+export const chatStream = async (
+  incidentId: number,
+  messages: { role: string; content: string }[]
+): Promise<Response> => {
+  const token = await getToken();
+  return fetch(`${BASE}/chat/stream`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${token}`,
+    },
+    body: JSON.stringify({ incident_id: incidentId, messages }),
+  });
+};
+
 // ── PDF export ───────────────────────────────────────────────────
 export const downloadIncidentPdf = async (incidents: Incident[], analytics: AnalyticsData | null) => {
   const { default: jsPDF } = await import("jspdf");
@@ -126,5 +171,20 @@ export const downloadIncidentPdf = async (incidents: Incident[], analytics: Anal
   doc.save("OpsPilot-Report.pdf");
 };
 
-// ── Projects ─────────────────────────────────────────────────────
-export const fetchProjects = () => request<Project[]>("/projects/");
+// ── Shared types used by callers ──────────────────────────────────
+export interface AuditEntry {
+  id: number;
+  action: string;
+  detail: string;
+  actor: string;
+  created_at: string;
+}
+
+export interface Forecast {
+  project: string;
+  risk_type: string;
+  description: string;
+  confidence: number;
+  timeframe: string;
+  recommended_action: string;
+}

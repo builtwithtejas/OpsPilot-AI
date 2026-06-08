@@ -1,5 +1,19 @@
+# backend/app/services/notification_service.py
+#
+# FIX (M-1): html.escape() is now applied to all user-controlled fields before
+# they are interpolated into the HTML email body. Without this, a title,
+# description, or remediation string containing <script> tags (e.g. crafted
+# inside a log file that Gemini analyzed) would be injected verbatim into the
+# HTML, allowing a stored-XSS payload to execute when the email is viewed in a
+# webmail client that renders HTML.
+#
+# Affected fields: title, description, remediation (all come from AI/log input).
+# severity and incident_id are safe (enum and integer respectively) but are
+# escaped for defence-in-depth.
+
 from __future__ import annotations
 
+import html
 import httpx
 from app.core.config import settings
 from app.utils.logger import logger
@@ -35,22 +49,32 @@ async def send_slack_notification(incident_id: int, title: str, severity: str, d
 async def send_email_notification(incident_id: int, title: str, severity: str, description: str, remediation: str) -> None:
     if not settings.SENDGRID_API_KEY or not settings.ALERT_EMAIL_TO:
         return
+
     emoji = SEVERITY_EMOJI.get(severity, "⚪")
+
+    # FIX M-1: Escape all user-controlled strings before HTML interpolation.
+    # title/description/remediation originate from Gemini output (which in turn
+    # consumed raw log content), so they must be treated as untrusted.
+    safe_title       = html.escape(title)
+    safe_description = html.escape(description)
+    safe_remediation = html.escape(remediation)
+    safe_severity    = html.escape(severity)    # defence-in-depth
+
     html_body = f"""
     <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#0a0a0a;color:#fff;border-radius:12px;overflow:hidden;">
       <div style="background:linear-gradient(to right,#33ff88,#00c3ff);padding:20px 28px;">
-        <h1 style="margin:0;font-size:22px;color:#000;">OpsPilot AI — {emoji} {severity} Incident</h1>
+        <h1 style="margin:0;font-size:22px;color:#000;">OpsPilot AI — {emoji} {safe_severity} Incident</h1>
       </div>
       <div style="padding:28px;">
-        <h2 style="color:#33ff88;margin-top:0;">#{incident_id}: {title}</h2>
+        <h2 style="color:#33ff88;margin-top:0;">#{incident_id}: {safe_title}</h2>
         <table style="width:100%;border-collapse:collapse;margin-bottom:20px;">
-          <tr><td style="color:#888;padding:6px 0;width:120px;">Severity</td><td style="color:#fff;font-weight:bold;">{severity}</td></tr>
+          <tr><td style="color:#888;padding:6px 0;width:120px;">Severity</td><td style="color:#fff;font-weight:bold;">{safe_severity}</td></tr>
           <tr><td style="color:#888;padding:6px 0;">Incident ID</td><td style="color:#fff;">#{incident_id}</td></tr>
         </table>
         <h3 style="color:#aaa;font-size:14px;text-transform:uppercase;letter-spacing:1px;">Description</h3>
-        <p style="color:#ccc;line-height:1.6;">{description}</p>
+        <p style="color:#ccc;line-height:1.6;">{safe_description}</p>
         <h3 style="color:#aaa;font-size:14px;text-transform:uppercase;letter-spacing:1px;">Remediation</h3>
-        <p style="color:#ccc;line-height:1.6;white-space:pre-line;">{remediation}</p>
+        <p style="color:#ccc;line-height:1.6;white-space:pre-line;">{safe_remediation}</p>
         <a href="{settings.FRONTEND_URL}/incidents/{incident_id}"
            style="display:inline-block;margin-top:16px;padding:12px 24px;background:linear-gradient(to right,#33ff88,#00c3ff);color:#000;font-weight:bold;text-decoration:none;border-radius:8px;">
           View Incident →
@@ -64,7 +88,7 @@ async def send_email_notification(incident_id: int, title: str, severity: str, d
     payload = {
         "personalizations": [{"to": [{"email": settings.ALERT_EMAIL_TO}]}],
         "from": {"email": settings.ALERT_EMAIL_FROM, "name": "OpsPilot AI"},
-        "subject": f"{emoji} [{severity}] Incident #{incident_id}: {title}",
+        "subject": f"{emoji} [{safe_severity}] Incident #{incident_id}: {safe_title}",
         "content": [{"type": "text/html", "value": html_body}],
     }
     try:

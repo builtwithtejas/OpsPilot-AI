@@ -1,5 +1,9 @@
-# backend/app/api/routes/auth.py  (new file)
-# Provides the token endpoint. Register this in router.py.
+# backend/app/api/routes/auth.py
+#
+# FIX (H-1): POST /auth/token now has its own tight rate limit of 10 req/min.
+# The global limiter is 200/min — far too loose for an endpoint that exchanges
+# a master secret for tokens. An attacker who guessed the key could hammer it
+# freely. The per-route decorator overrides the global limit for this endpoint.
 #
 # Usage:
 #   curl -X POST http://localhost:8000/auth/token \
@@ -7,20 +11,21 @@
 #
 # Response:
 #   { "access_token": "eyJ...", "token_type": "bearer", "expires_in": 3600 }
-#
-# Then use the token for all other requests:
-#   curl http://localhost:8000/incidents/ \
-#        -H "Authorization: Bearer eyJ..."
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from app.core.security import create_access_token, require_master_key
 from app.core.config import settings
+from app.main import limiter  # reuse the app-level limiter instance
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
 
 @router.post("/token", summary="Issue a short-lived JWT access token")
-async def issue_token(_: str = Depends(require_master_key)):
+@limiter.limit("10/minute")   # FIX H-1: tight limit — brute-force protection
+async def issue_token(
+    request: Request,          # required by slowapi to extract the key
+    _: str = Depends(require_master_key),
+):
     token = create_access_token()
     expire_minutes = getattr(settings, "TOKEN_EXPIRE_MINUTES", 60)
     return {

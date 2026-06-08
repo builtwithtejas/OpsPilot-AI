@@ -1,7 +1,10 @@
 "use client";
+// FIX C-5: Removed NEXT_PUBLIC_API_KEY and direct fetch().
+// Now uses chatStream() from lib/api.ts (JWT token proxy, key stays server-side).
 
 import { useEffect, useRef, useState } from "react";
 import { Send, Bot, User, X } from "lucide-react";
+import { chatStream } from "@/lib/api";
 
 interface Message { role: "user" | "assistant"; content: string; }
 
@@ -11,21 +14,15 @@ interface Props {
   onClose:       () => void;
 }
 
-const BASE    = process.env.NEXT_PUBLIC_API_URL  ?? "http://localhost:8000";
-const API_KEY = process.env.NEXT_PUBLIC_API_KEY ?? "";
-
 /** Render markdown bold (**text**) and code (`code`) safely — no innerHTML, no XSS. */
 function SafeMarkdown({ text }: { text: string }) {
   const parts: React.ReactNode[] = [];
-  // Split on **bold** and `code` patterns
   const regex = /(\*\*[^*]+\*\*|`[^`]+`)/g;
   let last = 0;
   let match;
 
   while ((match = regex.exec(text)) !== null) {
-    if (match.index > last) {
-      parts.push(text.slice(last, match.index));
-    }
+    if (match.index > last) parts.push(text.slice(last, match.index));
     const token = match[0];
     if (token.startsWith("**")) {
       parts.push(<strong key={match.index}>{token.slice(2, -2)}</strong>);
@@ -47,7 +44,7 @@ export default function ChatPanel({ incidentId, incidentTitle, onClose }: Props)
   const [messages, setMessages] = useState<Message[]>([
     { role: "assistant", content: `Hi! I'm here to help with incident **#${incidentId}**. Ask me anything about the root cause, remediation steps, or similar past issues.` }
   ]);
-  const [input, setInput]       = useState("");
+  const [input, setInput]         = useState("");
   const [streaming, setStreaming] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef  = useRef<HTMLInputElement>(null);
@@ -65,14 +62,11 @@ export default function ChatPanel({ incidentId, incidentTitle, onClose }: Props)
     setMessages(prev => [...prev, { role: "assistant", content: "" }]);
 
     try {
-      const res = await fetch(`${BASE}/chat/stream`, {
-        method:  "POST",
-        headers: { "Content-Type": "application/json", "X-API-Key": API_KEY },
-        body: JSON.stringify({
-          incident_id: incidentId,
-          messages:    newHistory.map(m => ({ role: m.role, content: m.content })),
-        }),
-      });
+      // FIX: chatStream() from lib/api.ts handles the JWT token — no raw API key here.
+      const res = await chatStream(
+        incidentId,
+        newHistory.map(m => ({ role: m.role, content: m.content }))
+      );
 
       if (!res.ok || !res.body) throw new Error("Stream failed");
 
@@ -94,7 +88,10 @@ export default function ChatPanel({ incidentId, incidentTitle, onClose }: Props)
     } catch (err) {
       setMessages(prev => {
         const updated = [...prev];
-        updated[updated.length - 1] = { role: "assistant", content: `⚠ Error: ${err instanceof Error ? err.message : "Request failed"}` };
+        updated[updated.length - 1] = {
+          role: "assistant",
+          content: `⚠ Error: ${err instanceof Error ? err.message : "Request failed"}`,
+        };
         return updated;
       });
     } finally {
@@ -146,7 +143,6 @@ export default function ChatPanel({ incidentId, incidentTitle, onClose }: Props)
               {msg.content === "" && streaming ? (
                 <span style={{ display: "inline-block", width: "8px", height: "14px", background: "var(--accent)", animation: "blink 0.8s step-end infinite" }} />
               ) : (
-                /* Safe React rendering — no innerHTML, no XSS risk */
                 <SafeMarkdown text={msg.content} />
               )}
             </div>
@@ -171,7 +167,7 @@ export default function ChatPanel({ incidentId, incidentTitle, onClose }: Props)
             fontSize: "13px", outline: "none",
           }}
         />
-        <button 
+        <button
           onClick={() => void send()}
           disabled={!input.trim() || streaming}
           aria-label="Send message"

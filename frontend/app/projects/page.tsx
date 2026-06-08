@@ -1,20 +1,19 @@
 "use client";
+// FIX C-5: Removed all direct fetch() with NEXT_PUBLIC_API_KEY.
+// All API calls now go through lib/api.ts (JWT token proxy, key stays server-side).
 
 import { useEffect, useState } from "react";
 import AppShell from "@/components/AppShell";
 import Section from "@/components/Section";
+import {
+  fetchProjects,
+  registerProject,
+  toggleProject,
+  removeProject,
+} from "@/lib/api";
+import type { Project } from "@/types";
 
-const BASE    = process.env.NEXT_PUBLIC_API_URL  ?? "http://localhost:8000";
-const API_KEY = process.env.NEXT_PUBLIC_API_KEY ?? "";
-
-interface Project {
-  id: number;
-  gitlab_project_id: string;
-  name: string;
-  description: string | null;
-  active: boolean;
-  created_at: string;
-}
+const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 export default function ProjectsPage() {
   const [projects, setProjects]   = useState<Project[]>([]);
@@ -30,10 +29,11 @@ export default function ProjectsPage() {
 
   async function load() {
     try {
-      const res = await fetch(`${BASE}/projects/`, { headers: { "X-API-Key": API_KEY } });
-      if (res.ok) setProjects(await res.json());
-    } catch (e) {
-      setError("Failed to load projects");
+      setError("");
+      const data = await fetchProjects();
+      setProjects(data);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to load projects");
     } finally {
       setLoading(false);
     }
@@ -45,15 +45,7 @@ export default function ProjectsPage() {
     if (!form.gitlab_project_id.trim() || !form.name.trim()) return;
     setSaving(true);
     try {
-      const res = await fetch(`${BASE}/projects/`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-API-Key": API_KEY },
-        body: JSON.stringify(form),
-      });
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail ?? "Failed to register");
-      }
+      await registerProject(form);
       await load();
       setShowModal(false);
       setForm({ gitlab_project_id: "", name: "", description: "" });
@@ -64,21 +56,23 @@ export default function ProjectsPage() {
     }
   }
 
-  async function toggleProject(id: number) {
-    await fetch(`${BASE}/projects/${id}/toggle`, {
-      method: "PATCH",
-      headers: { "X-API-Key": API_KEY },
-    });
-    await load();
+  async function handleToggle(id: number) {
+    try {
+      await toggleProject(id);
+      await load();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to toggle project");
+    }
   }
 
-  async function removeProject(id: number) {
+  async function handleRemove(id: number) {
     if (!confirm("Remove this project from monitoring?")) return;
-    await fetch(`${BASE}/projects/${id}`, {
-      method: "DELETE",
-      headers: { "X-API-Key": API_KEY },
-    });
-    await load();
+    try {
+      await removeProject(id);
+      await load();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to remove project");
+    }
   }
 
   return (
@@ -105,10 +99,10 @@ export default function ProjectsPage() {
       {/* Stats */}
       <div className="fade-up" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: "14px", marginBottom: "28px" }}>
         {[
-          { label: "Total Projects",  value: projects.length,                              color: "#fc6d26" },
-          { label: "Active",          value: projects.filter(p => p.active).length,        color: "#33ff88" },
-          { label: "Paused",          value: projects.filter(p => !p.active).length,       color: "#ffb347" },
-          { label: "Webhook Ready",   value: projects.length > 0 ? "✓" : "—",             color: "#00c3ff" },
+          { label: "Total Projects", value: projects.length,                        color: "#fc6d26" },
+          { label: "Active",         value: projects.filter(p => p.active).length,  color: "#33ff88" },
+          { label: "Paused",         value: projects.filter(p => !p.active).length, color: "#ffb347" },
+          { label: "Webhook Ready",  value: projects.length > 0 ? "✓" : "—",        color: "#00c3ff" },
         ].map(s => (
           <div key={s.label} className="hover-card" style={{ background: "var(--card-bg)", border: `1px solid ${s.color}33`, borderRadius: "16px", padding: "18px", backdropFilter: "blur(12px)" }}>
             <div style={{ color: "var(--text-tertiary)", fontSize: "13px", marginBottom: "6px" }}>{s.label}</div>
@@ -150,21 +144,11 @@ export default function ProjectsPage() {
                 gap: "16px",
                 flexWrap: "wrap",
               }}>
-                {/* Icon */}
-                <div style={{ width: "40px", height: "40px", borderRadius: "10px", background: "linear-gradient(135deg,#e24329,#fc6d26)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "20px", flexShrink: 0 }}>
-                  🦊
-                </div>
-
-                {/* Info */}
+                <div style={{ width: "40px", height: "40px", borderRadius: "10px", background: "linear-gradient(135deg,#e24329,#fc6d26)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "20px", flexShrink: 0 }}>🦊</div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px", flexWrap: "wrap" }}>
                     <span style={{ fontWeight: 700, fontSize: "15px", color: "var(--text-primary)" }}>{p.name}</span>
-                    <span style={{
-                      fontSize: "11px", fontWeight: 600, padding: "2px 8px", borderRadius: "6px",
-                      background: p.active ? "rgba(51,255,136,0.12)" : "rgba(136,136,136,0.12)",
-                      color: p.active ? "#33ff88" : "#888",
-                      border: `1px solid ${p.active ? "rgba(51,255,136,0.3)" : "rgba(136,136,136,0.3)"}`,
-                    }}>
+                    <span style={{ fontSize: "11px", fontWeight: 600, padding: "2px 8px", borderRadius: "6px", background: p.active ? "rgba(51,255,136,0.12)" : "rgba(136,136,136,0.12)", color: p.active ? "#33ff88" : "#888", border: `1px solid ${p.active ? "rgba(51,255,136,0.3)" : "rgba(136,136,136,0.3)"}` }}>
                       {p.active ? "● Active" : "○ Paused"}
                     </span>
                   </div>
@@ -174,26 +158,20 @@ export default function ProjectsPage() {
                     <span>Added {new Date(p.created_at).toLocaleDateString()}</span>
                   </div>
                 </div>
-
-                {/* Webhook URL */}
                 <div style={{ background: "var(--input-bg)", border: "1px solid var(--border)", borderRadius: "8px", padding: "6px 10px", fontSize: "11px", fontFamily: "monospace", color: "var(--text-tertiary)", maxWidth: "260px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   /webhooks/gitlab
                 </div>
-
-                {/* Actions */}
                 <div style={{ display: "flex", gap: "6px", flexShrink: 0 }}>
                   <button
-                    onClick={() => toggleProject(p.id)}
+                    onClick={() => void handleToggle(p.id)}
                     aria-label={p.active ? "Pause monitoring" : "Resume monitoring"}
-                    title={p.active ? "Pause" : "Resume"}
                     style={{ padding: "8px 14px", borderRadius: "8px", background: "var(--input-bg)", border: "1px solid var(--border)", color: p.active ? "#ffb347" : "#33ff88", cursor: "pointer", fontSize: "12px", fontWeight: 600 }}
                   >
                     {p.active ? "⏸ Pause" : "▶ Resume"}
                   </button>
                   <button
-                    onClick={() => removeProject(p.id)}
+                    onClick={() => void handleRemove(p.id)}
                     aria-label="Remove project"
-                    title="Remove"
                     style={{ padding: "8px 10px", borderRadius: "8px", background: "rgba(255,77,77,0.08)", border: "1px solid rgba(255,77,77,0.2)", color: "#ff4d4d", cursor: "pointer", fontSize: "13px" }}
                   >
                     🗑
@@ -228,49 +206,27 @@ export default function ProjectsPage() {
 
       {/* Register modal */}
       {showModal && (
-        <div style={{
-          position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)",
-          display: "flex", alignItems: "center", justifyContent: "center",
-          zIndex: 1000, backdropFilter: "blur(8px)",
-        }}>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, backdropFilter: "blur(8px)" }}>
           <div style={{ background: "var(--card-bg)", border: "1px solid var(--border)", borderRadius: "20px", padding: "28px", width: "min(480px,90vw)", backdropFilter: "blur(24px)" }}>
             <h2 style={{ fontSize: "20px", fontWeight: 700, marginBottom: "6px" }}>Register GitLab Project</h2>
             <p style={{ fontSize: "13px", color: "var(--text-tertiary)", marginBottom: "20px" }}>Add a GitLab project to monitor for pipeline failures</p>
 
             <div style={{ display: "flex", flexDirection: "column", gap: "14px", marginBottom: "20px" }}>
-              <div>
-                <label style={{ fontSize: "12px", color: "var(--text-tertiary)", display: "block", marginBottom: "6px" }}>
-                  GitLab Project ID or namespace/project *
-                </label>
-                <input
-                  value={form.gitlab_project_id}
-                  onChange={e => setForm(f => ({ ...f, gitlab_project_id: e.target.value }))}
-                  placeholder="e.g. 82734152 or mygroup/myproject"
-                  style={{ width: "100%", background: "var(--input-bg)", border: "1px solid var(--border)", borderRadius: "10px", padding: "10px 14px", color: "var(--text-primary)", fontSize: "13px", outline: "none", boxSizing: "border-box" }}
-                />
-              </div>
-              <div>
-                <label style={{ fontSize: "12px", color: "var(--text-tertiary)", display: "block", marginBottom: "6px" }}>
-                  Project name *
-                </label>
-                <input
-                  value={form.name}
-                  onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-                  placeholder="e.g. opspilot-demo"
-                  style={{ width: "100%", background: "var(--input-bg)", border: "1px solid var(--border)", borderRadius: "10px", padding: "10px 14px", color: "var(--text-primary)", fontSize: "13px", outline: "none", boxSizing: "border-box" }}
-                />
-              </div>
-              <div>
-                <label style={{ fontSize: "12px", color: "var(--text-tertiary)", display: "block", marginBottom: "6px" }}>
-                  Description (optional)
-                </label>
-                <input
-                  value={form.description}
-                  onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
-                  placeholder="e.g. Main deployment pipeline"
-                  style={{ width: "100%", background: "var(--input-bg)", border: "1px solid var(--border)", borderRadius: "10px", padding: "10px 14px", color: "var(--text-primary)", fontSize: "13px", outline: "none", boxSizing: "border-box" }}
-                />
-              </div>
+              {[
+                { key: "gitlab_project_id" as const, label: "GitLab Project ID or namespace/project *", placeholder: "e.g. 82734152 or mygroup/myproject" },
+                { key: "name" as const,              label: "Project name *",                           placeholder: "e.g. opspilot-demo" },
+                { key: "description" as const,       label: "Description (optional)",                   placeholder: "e.g. Main deployment pipeline" },
+              ].map(({ key, label, placeholder }) => (
+                <div key={key}>
+                  <label style={{ fontSize: "12px", color: "var(--text-tertiary)", display: "block", marginBottom: "6px" }}>{label}</label>
+                  <input
+                    value={form[key]}
+                    onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
+                    placeholder={placeholder}
+                    style={{ width: "100%", background: "var(--input-bg)", border: "1px solid var(--border)", borderRadius: "10px", padding: "10px 14px", color: "var(--text-primary)", fontSize: "13px", outline: "none", boxSizing: "border-box" }}
+                  />
+                </div>
+              ))}
             </div>
 
             <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}>
@@ -281,7 +237,7 @@ export default function ProjectsPage() {
                 Cancel
               </button>
               <button
-                onClick={register}
+                onClick={() => void register()}
                 disabled={saving || !form.gitlab_project_id.trim() || !form.name.trim()}
                 style={{ padding: "10px 20px", borderRadius: "10px", background: saving ? "rgba(252,109,38,0.3)" : "linear-gradient(to right,#e24329,#fc6d26)", border: "none", color: "white", fontWeight: 700, fontSize: "13px", cursor: saving ? "not-allowed" : "pointer" }}
               >
