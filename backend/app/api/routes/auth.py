@@ -15,7 +15,7 @@
 from fastapi import APIRouter, Depends, Request
 from app.core.security import create_access_token, require_master_key
 from app.core.config import settings
-from app.main import limiter  # reuse the app-level limiter instance
+from app.core.limiter import limiter  # reuse the app-level limiter instance
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 

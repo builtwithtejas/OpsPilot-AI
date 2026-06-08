@@ -77,7 +77,8 @@ async def github_webhook(
     if not _verify_github_signature(body, x_hub_signature_256):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid webhook signature.")
 
-    payload = await request.json()
+    import json
+    payload = json.loads(body)
 
     if x_github_event != "workflow_run":
         return {"message": f"Event '{x_github_event}' acknowledged but not processed."}

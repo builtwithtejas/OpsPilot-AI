@@ -1,10 +1,10 @@
 # backend/app/api/routes/incidents.py
 #
-# FIX (H-2): Added POST /incidents/{id}/autofix endpoint.
-# AutoFixButton.tsx calls this route; it previously returned 404 because the
-# handler didn't exist. The route fetches the incident, calls generate_auto_fix()
-# from ai_service.py, commits the fix via GitLab, records an audit entry, and
-# persists the MR URL back on the incident row.
+# FIX R-3: generate_auto_fix() is a synchronous Gemini call.
+# Calling it directly inside an async route blocks the event loop.
+# Wrapped with asyncio.to_thread() so it runs in a thread pool.
+
+import asyncio
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,7 +19,7 @@ from app.services.incident_service import (
 from app.services.audit_service import log_action, get_audit_log
 from app.services.notification_service import notify_all
 from app.services.ai_service import generate_auto_fix
-from app.services.gitlab_service import create_mr_with_fix  # existing helper
+from app.services.gitlab_service import create_mr_with_fix
 from app.utils.logger import logger
 
 router = APIRouter(prefix="/incidents", tags=["Incidents"], dependencies=[Depends(require_api_key)])
@@ -88,7 +88,6 @@ async def remove_incident(incident_id: int, db: AsyncSession = Depends(get_db)):
     await delete_incident(db, incident_id)
 
 
-# ── FIX H-2: Auto-fix endpoint ────────────────────────────────────
 @router.post(
     "/{incident_id}/autofix",
     summary="Generate an AI auto-fix MR for the incident",
@@ -116,11 +115,15 @@ async def autofix_incident(incident_id: int, db: AsyncSession = Depends(get_db))
             detail="This incident has no associated pipeline. Auto-fix requires a pipeline_id.",
         )
 
-    # Generate the fix via Gemini
-    fix = generate_auto_fix(
-        root_cause=inc.description or "",
-        remediation=inc.remediation or "",
-        current_file_content="",  # GitLab service fetches the real file
+    # FIX R-3: generate_auto_fix() calls the Gemini SDK synchronously.
+    # Running it directly in an async route blocks the entire event loop.
+    # asyncio.to_thread() offloads it to a thread pool so other requests
+    # are not stalled during the Gemini API call (which can take 2–5 seconds).
+    fix = await asyncio.to_thread(
+        generate_auto_fix,
+        inc.description or "",
+        inc.remediation or "",
+        "",  # current_file_content — GitLab service fetches the real file
     )
 
     if not fix or not fix.get("fixed_content"):
@@ -129,7 +132,6 @@ async def autofix_incident(incident_id: int, db: AsyncSession = Depends(get_db))
             detail="AI fix generation failed or returned empty content. Try again.",
         )
 
-    # Create MR via GitLab
     try:
         mr_url = await create_mr_with_fix(
             project_id=str(inc.pipeline_id),
@@ -146,7 +148,6 @@ async def autofix_incident(incident_id: int, db: AsyncSession = Depends(get_db))
             detail=f"GitLab MR creation failed: {exc}",
         )
 
-    # Persist MR URL on the incident and log the action
     await update_incident(db, incident_id, IncidentUpdate(autofix_mr_url=mr_url))
     await log_action(db, incident_id, "autofix_created", f"MR: {mr_url}")
 

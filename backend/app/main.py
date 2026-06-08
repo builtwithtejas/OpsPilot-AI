@@ -6,9 +6,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 
-from slowapi import Limiter, _rate_limit_exceeded_handler
+
 from slowapi.errors import RateLimitExceeded
-from slowapi.util import get_remote_address
+
 from tenacity import RetryError
 
 from app.api.router import api_router
@@ -23,10 +23,8 @@ from app.utils.logger import logger
 from app.models.monitored_project import MonitoredProject  # noqa: F401
 
 # ── Rate limiter ──────────────────────────────────────────────────
-limiter = Limiter(
-    key_func=get_remote_address,
-    default_limits=["200/minute"]
-)
+from app.core.limiter import limiter
+from slowapi import _rate_limit_exceeded_handler
 
 
 # ── App lifespan ──────────────────────────────────────────────────
