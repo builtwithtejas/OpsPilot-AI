@@ -81,12 +81,19 @@ async def get_similar_incidents(db: AsyncSession, incident: Incident, limit: int
     if not keywords:
         return []
 
+    kw_filters = [Incident.description.ilike(f"%{kw}%") for kw in keywords[:5]]
+    # L FIX: or_(*[]) with an empty list raises a SQLAlchemy error.
+    # Guard is already above (keywords is non-empty here), but kw_filters[:5]
+    # could still be empty if keywords was somehow mutated; the explicit guard makes it safe.
+    if not kw_filters:
+        return []
+
     result = await db.execute(
         select(Incident)
         .filter(
             Incident.id != incident.id,
             Incident.severity == incident.severity,
-            or_(*[Incident.description.ilike(f"%{kw}%") for kw in keywords[:5]])
+            or_(*kw_filters),
         )
         .order_by(Incident.created_at.desc())
         .limit(limit)

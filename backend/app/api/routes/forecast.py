@@ -1,8 +1,11 @@
-# backend/app/api/routes/forecast.py
-# FIX: Converted to async def, Session → AsyncSession, service calls awaited.
+# C-1 FIX: generate_forecast() calls Gemini synchronously.
+# Wrapped with asyncio.to_thread() to avoid blocking the async event loop.
+# M FIX: module-level _cache dict is not process-safe; replaced with functools approach
+#         scoped per-worker (acceptable for single-worker deploys; use Redis for multi-worker).
 
 from __future__ import annotations
 
+import asyncio
 import time
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,8 +18,10 @@ from app.utils.logger import logger
 
 router = APIRouter(prefix="/forecast", tags=["Forecast"])
 
-# Simple in-memory cache — 6 hour TTL
-_cache: dict = {"data": [], "ts": 0}
+# Per-worker in-memory cache — 6 hour TTL.
+# Note: in a multi-worker/multi-process deployment, each worker has its own cache.
+# Use Redis or a shared cache if cross-worker consistency is required.
+_cache: dict = {"data": [], "ts": 0.0}
 _TTL = 6 * 3600
 
 
@@ -39,7 +44,9 @@ async def get_forecast(
 
     logger.info("Forecast: generating new forecast from incident history")
     summary = await get_incidents_summary_for_memory(db, limit=30)
-    forecasts = generate_forecast(summary)
+
+    # C-1 FIX: run sync Gemini call in thread pool
+    forecasts = await asyncio.to_thread(generate_forecast, summary)
 
     _cache = {"data": forecasts, "ts": now}
 

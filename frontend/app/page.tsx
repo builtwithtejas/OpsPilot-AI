@@ -42,7 +42,7 @@ export default function Home() {
   const apiColor = error ? "#ff4d4d" : "#33ff88";
 
   return (
-    <AppShell onRefresh={refresh}>
+    <AppShell onRefresh={refresh} incidents={incidents}>
       {/* Header */}
       <div className="fade-up" style={{ marginBottom: "32px", display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: "12px" }}>
         <div>

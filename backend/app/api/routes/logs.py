@@ -1,6 +1,8 @@
-# backend/app/api/routes/logs.py
-# FIX: Session → AsyncSession, create_incident awaited.
+# C-1 FIX: analyze_logs() calls the Gemini SDK synchronously.
+# Wrapped with asyncio.to_thread() so it runs in a thread pool
+# instead of blocking the async event loop.
 
+import asyncio
 from fastapi import APIRouter, Depends, File, UploadFile, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,7 +12,7 @@ from app.schemas.ai_schema import AnalyzeResponse
 from app.schemas.incident_schema import IncidentCreate
 from app.services.ai_service import analyze_logs
 from app.services.incident_service import create_incident
-from app.services.log_service import read_log_file, save_log_file
+from app.services.log_service import read_log_file, save_log_file, delete_log_file
 from app.utils.logger import logger
 
 router = APIRouter(prefix="/logs", tags=["Logs"], dependencies=[Depends(require_api_key)])
@@ -31,6 +33,7 @@ async def analyze_uploaded_file(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
 ):
+    filepath = None
     try:
         filepath = await save_log_file(file)
         logs = read_log_file(filepath)
@@ -41,7 +44,8 @@ async def analyze_uploaded_file(
                 detail="Uploaded file is empty — nothing to analyze.",
             )
 
-        result = analyze_logs(logs)
+        # C-1 FIX: run sync Gemini call off the event loop
+        result = await asyncio.to_thread(analyze_logs, logs)
 
         incident = await create_incident(
             db,
@@ -75,3 +79,7 @@ async def analyze_uploaded_file(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Analysis failed: {str(exc)}",
         )
+    finally:
+        # H-4 FIX: Always delete the uploaded file after analysis to prevent unbounded disk growth.
+        if filepath is not None:
+            delete_log_file(filepath)

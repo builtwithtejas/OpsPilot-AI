@@ -1,32 +1,21 @@
-# backend/app/database/database.py
-# FIX: Switched from sync SQLAlchemy to async (asyncpg + SQLAlchemy async).
-#      Previously, every DB call blocked FastAPI's async event loop.
-#      Now DB calls are fully non-blocking — safe under real concurrent load.
+# C-4 FIX: asyncpg rejects ?sslmode=require in the URL.
+#   The sslmode parameter must NOT be in the URL for asyncpg.
+#   Instead, SSL is configured via connect_args={"ssl": "require"} (asyncpg accepts a string).
+#   The DATABASE_URL in .env should be plain postgresql+asyncpg://... (no sslmode query param).
 #
-# REQUIRED: Add these to requirements.txt (see r1b_requirements.txt):
-#   sqlalchemy[asyncio]==2.0.35
-#   asyncpg==0.29.0
-#
-# REQUIRED: Change your DATABASE_URL in .env from:
-#   DATABASE_URL=postgresql://user:pass@host/db
-# to:
-#   DATABASE_URL=postgresql+asyncpg://user:pass@host/db
-#
-# For local SQLite dev, use:
-#   DATABASE_URL=sqlite+aiosqlite:///./opspilot.db
-# and add aiosqlite to requirements.txt too.
+# database.py — async SQLAlchemy engine for FastAPI
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
+
 class Base(DeclarativeBase):
     pass
+
 from app.core.config import settings
 
-# Detect SQLite (dev) vs Postgres (prod) — both need async drivers
 _url = settings.DATABASE_URL
 
 # Auto-upgrade bare sqlite:/// or postgresql:// URLs to async variants
-# so existing .env files keep working without manual edits
 if _url.startswith("sqlite:///") and "+aiosqlite" not in _url:
     _url = _url.replace("sqlite:///", "sqlite+aiosqlite:///", 1)
 elif _url.startswith("postgresql://") and "+asyncpg" not in _url:
@@ -35,13 +24,22 @@ elif _url.startswith("postgres://") and "+asyncpg" not in _url:
     _url = _url.replace("postgres://", "postgresql+asyncpg://", 1)
 
 _is_sqlite = "sqlite" in _url
+_is_postgres = "postgresql+asyncpg" in _url
+
+# C-4 FIX: For Neon / any production Postgres, pass ssl="require" via connect_args.
+# asyncpg accepts "require", "disable", "prefer", or an ssl.SSLContext object.
+# Do NOT put sslmode=require in the URL — asyncpg will reject it.
+_connect_args: dict = {}
+if _is_sqlite:
+    _connect_args = {"check_same_thread": False}
+elif _is_postgres:
+    _connect_args = {"ssl": "require"}
 
 engine = create_async_engine(
     _url,
     echo=False,
     pool_pre_ping=True,
-    # SQLite doesn't support connection pools — use StaticPool for dev
-    **( {"connect_args": {"check_same_thread": False}} if _is_sqlite else {} ),
+    connect_args=_connect_args,
 )
 
 AsyncSessionLocal = async_sessionmaker(

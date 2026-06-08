@@ -1,5 +1,6 @@
-# backend/app/api/routes/webhooks.py
-# FIX: Session → AsyncSession; all DB service calls awaited.
+# C-2 FIX: The request-scoped DB session is closed before BackgroundTasks run.
+# Solution: _run_agent_background now opens its OWN session using AsyncSessionLocal
+# directly, instead of receiving the already-closed request session.
 
 from __future__ import annotations
 
@@ -10,6 +11,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.database.database import AsyncSessionLocal
 from app.database.dependencies import get_db
 from app.schemas.incident_schema import IncidentCreate
 from app.services.audit_service import log_action
@@ -35,20 +37,32 @@ def _verify_gitlab_token(token: str | None) -> bool:
     return token == settings.GITLAB_WEBHOOK_SECRET
 
 
-async def _run_agent_background(project_id: str, pipeline_id: int, db: AsyncSession) -> None:
-    """Run the full agent in the background after webhook fires."""
-    try:
-        from app.services.agent_service import run_agent
-        logger.info("Webhook: auto-triggering agent for project %s pipeline %s", project_id, pipeline_id)
-        result = await run_agent(
-            db=db,
-            project_id=project_id,
-            pipeline_id=pipeline_id,
-            triggered_by="gitlab-webhook",
-        )
-        logger.info("Webhook: agent run %s completed — status: %s", result.run_id, result.status)
-    except Exception as exc:
-        logger.error("Webhook: agent auto-run failed: %s", exc)
+async def _run_agent_background(project_id: str, pipeline_id: int) -> None:
+    """Run the full agent in the background with its own fresh DB session.
+
+    C-2 FIX: We no longer accept a `db` parameter here.
+    The request-scoped session is already closed by the time BackgroundTasks run.
+    Instead, we open a new session scoped to this background task's lifetime.
+    """
+    async with AsyncSessionLocal() as db:
+        try:
+            from app.services.agent_service import run_agent
+            logger.info(
+                "Webhook: auto-triggering agent for project %s pipeline %s",
+                project_id, pipeline_id,
+            )
+            result = await run_agent(
+                db=db,
+                project_id=project_id,
+                pipeline_id=pipeline_id,
+                triggered_by="gitlab-webhook",
+            )
+            logger.info(
+                "Webhook: agent run %s completed — status: %s",
+                result.run_id, result.status,
+            )
+        except Exception as exc:
+            logger.error("Webhook: agent auto-run failed: %s", exc)
 
 
 @router.post("/github", summary="Receive GitHub Actions webhook events")
@@ -147,11 +161,12 @@ async def gitlab_webhook(
             "incident_id": existing.id,
         }
 
+    # C-2 FIX: pass only scalar values (project_id, pipeline_id), NOT the db session.
+    # _run_agent_background opens its own session internally.
     background_tasks.add_task(
         _run_agent_background,
         project_id=project_id,
         pipeline_id=pipeline_id,
-        db=db,
     )
 
     logger.info("Webhook: agent queued for pipeline #%s in project %s", pipeline_id, project_id)

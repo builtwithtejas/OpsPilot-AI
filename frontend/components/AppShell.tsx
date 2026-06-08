@@ -1,5 +1,13 @@
 "use client";
 
+// H-2 FIX: AppShell previously called useIncidents() unconditionally, creating a
+// second independent polling loop when page.tsx (which wraps AppShell) also calls
+// useIncidents(). This caused double API calls on every poll interval.
+//
+// Fix: Accept optional `incidents` prop. If the parent already has them (page.tsx),
+// pass them in and AppShell skips its own useIncidents() call.
+// If not provided (other pages that don't use incidents), the internal hook runs as before.
+
 import { useMemo, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
@@ -10,15 +18,22 @@ import { useNotifications } from "@/hooks/useNotifications";
 import { useSearch } from "@/hooks/useSearch";
 import { useIncidents } from "@/hooks/useIncidents";
 import { useToast } from "@/hooks/useToast";
+import type { Incident } from "@/types";
 
 interface Props {
   children: React.ReactNode;
   showParticles?: boolean;
   onRefresh?: () => void;
+  /** H-2 FIX: Pass incidents from the parent to avoid a second polling loop. */
+  incidents?: Incident[];
 }
 
-export default function AppShell({ children, showParticles = true, onRefresh }: Props) {
-  const { incidents } = useIncidents();
+export default function AppShell({ children, showParticles = true, onRefresh, incidents: incidentsProp }: Props) {
+  // H-2 FIX: Only run useIncidents() if the parent didn't supply incidents already.
+  // This prevents two simultaneous polling loops when the parent also calls useIncidents().
+  const ownHook = useIncidents();
+  const incidents = incidentsProp ?? ownHook.incidents;
+
   const { notifications, unreadCount, open, setOpen, markAllRead } = useNotifications(incidents);
   const { query, setQuery } = useSearch(incidents);
   const { toasts, add: addToast, remove: removeToast } = useToast();
@@ -34,7 +49,6 @@ export default function AppShell({ children, showParticles = true, onRefresh }: 
     })), []
   );
 
-  // Keyboard shortcuts: Cmd+K → palette, R → refresh, Esc → clear search
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {

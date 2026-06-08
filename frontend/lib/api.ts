@@ -1,4 +1,7 @@
 // frontend/lib/api.ts
+// C-5 FIX: The master API_KEY is no longer NEXT_PUBLIC_API_KEY (which bakes it into
+// the JS bundle). The browser now calls /api/token (a Next.js Route Handler that keeps
+// the key server-side) to obtain a short-lived JWT. All subsequent API calls use that JWT.
 
 import type {
   AgentRun, AnalyzeResult, AnalyticsData, GitLabJob, GitLabPipeline,
@@ -6,26 +9,23 @@ import type {
 } from "@/types";
 import type { Project } from "@/types";
 
-const BASE    = process.env.NEXT_PUBLIC_API_URL  ?? "http://localhost:8000";
-const API_KEY = process.env.NEXT_PUBLIC_API_KEY ?? "";
+const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 // ── Token cache ──────────────────────────────────────────────────
-// Fetches a short-lived JWT from /auth/token using the master API_KEY.
-// Caches it in memory and refreshes 30 seconds before expiry.
+// Fetches a short-lived JWT via our own /api/token Route Handler (server-side proxy).
+// The master API key never leaves the server. Cached in memory, refreshed 30s before expiry.
 let _cachedToken: string | null = null;
 let _tokenExpiry: number = 0;
 
 async function getToken(): Promise<string> {
-  // Return cached token if still valid (with 30s buffer)
   if (_cachedToken && Date.now() < _tokenExpiry - 30_000) {
     return _cachedToken;
   }
-  const res = await fetch(`${BASE}/auth/token`, {
-    method: "POST",
-    headers: { "X-API-Key": API_KEY },
-  });
+  // C-5 FIX: Call our own Route Handler (/api/token) instead of the backend directly.
+  // The Route Handler holds the master API_KEY server-side and exchanges it for a JWT.
+  const res = await fetch("/api/token", { method: "POST" });
   if (!res.ok) {
-    throw new Error("Failed to obtain access token from /auth/token");
+    throw new Error("Failed to obtain access token");
   }
   const data = await res.json() as { access_token: string; expires_in: number };
   _cachedToken = data.access_token;
@@ -55,7 +55,6 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 export const fetchWorkflows = () => request<WorkflowRun[]>("/github/workflows");
 export const fetchAnalytics = () => request<AnalyticsData>("/github/analytics");
 export const fetchMetrics   = () => request<SystemMetrics>("/metrics/");
-
 
 // ── Incidents ────────────────────────────────────────────────────
 export const fetchIncidents = (skip = 0, limit = 100) =>

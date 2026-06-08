@@ -1,3 +1,8 @@
+# C-1 FIX: All GitHub SDK calls are synchronous (PyGithub has no async support).
+# Wrapping them with asyncio.to_thread() runs them in a thread pool,
+# preventing them from blocking the async event loop under load.
+
+import asyncio
 import re as _re
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -11,32 +16,36 @@ router = APIRouter(prefix="/github", tags=["GitHub"], dependencies=[Depends(requ
 
 
 @router.get("/workflows", response_model=list[WorkflowRun], summary="Recent workflow runs")
-def workflows():
-    return get_workflow_runs(limit=10)
+async def workflows():
+    return await asyncio.to_thread(get_workflow_runs, 10)
 
 
 @router.get("/analytics", response_model=AnalyticsResponse, summary="Aggregated CI/CD analytics")
-def analytics():
-    runs = get_workflow_runs(limit=50)
+async def analytics():
+    runs = await asyncio.to_thread(get_workflow_runs, 50)
     return build_analytics(runs)
 
 
 @router.get("/repo", response_model=RepoStats, summary="Repository statistics")
-def repo_stats():
-    return get_repo_stats()
+async def repo_stats():
+    return await asyncio.to_thread(get_repo_stats)
 
 
 @router.post("/rerun", summary="Re-run a failed GitHub Actions workflow")
-def rerun_workflow(payload: dict):
+async def rerun_workflow(payload: dict):
     url = payload.get("workflow_url", "")
     match = _re.search(r"/runs/(\d+)", url)
     if not match:
         raise HTTPException(status_code=400, detail="Invalid workflow URL — cannot extract run ID.")
     run_id = int(match.group(1))
-    try:
+
+    def _do_rerun():
         repo = _get_repo()
         run = repo.get_workflow_run(run_id)
         run.rerun()
+
+    try:
+        await asyncio.to_thread(_do_rerun)
         return {"message": f"Workflow run #{run_id} re-triggered successfully."}
     except GithubException as exc:
         raise HTTPException(status_code=503, detail=f"GitHub API error: {exc}")

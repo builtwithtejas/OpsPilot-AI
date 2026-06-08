@@ -50,14 +50,31 @@ export function timeAgo(dateStr: string): string {
   return "just now";
 }
 
+// H-3 FIX: All string fields are now properly CSV-escaped (quotes doubled, every field
+// wrapped in quotes). CSV injection is prevented by prefixing cells that start with
+// formula characters (=, +, -, @, \t, \r) with a single-quote — standard mitigation.
+function csvCell(value: string | number): string {
+  const str = String(value);
+  // CSV injection protection: prefix formula starters with a literal apostrophe
+  const safe = /^[=+\-@\t\r]/.test(str) ? "'" + str : str;
+  // Escape double-quotes by doubling them, then wrap the field in double-quotes
+  return `"${safe.replace(/"/g, '""')}"`; 
+}
+
 export function exportIncidentsCSV(incidents: import("@/types").Incident[]) {
-  const header = "ID,Title,Severity,Status,Confidence,Created\n";
-  const rows = incidents.map(i =>
-    `${i.id},"${i.title}",${i.severity},${i.status},${i.confidence}%,${new Date(i.created_at).toLocaleString()}`
-  ).join("\n");
+  const header = ["ID","Title","Severity","Status","Confidence","Created"].map(csvCell).join(",") + "\n";
+  const rows = incidents.map(i => [
+    i.id,
+    i.title,
+    i.severity,
+    i.status,
+    `${i.confidence}%`,
+    new Date(i.created_at).toLocaleString(),
+  ].map(csvCell).join(",")).join("\n");
   const blob = new Blob([header + rows], { type: "text/csv" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url; a.download = "opspilot-incidents.csv"; a.click();
   URL.revokeObjectURL(url);
 }
+

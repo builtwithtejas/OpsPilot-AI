@@ -14,3 +14,8 @@ build/
 opspilot.db
 uploads/
 *.log
+
+# M FIX: SQLite test DB should never be committed — contains test data, grows unbounded
+test_opspilot.db
+*.db
+*.sqlite3

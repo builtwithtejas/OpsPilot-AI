@@ -1,5 +1,9 @@
 "use client";
 
+// M FIX: visibilitychange previously triggered a fetch unconditionally on every tab focus.
+// Now it only refetches if data is actually stale (older than the refresh interval).
+// This avoids a burst of API calls every time the user alt-tabs back.
+
 import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchAnalytics, fetchWorkflows, fetchMetrics } from "@/lib/api";
 import type { AnalyticsData, WorkflowRun, SystemMetrics } from "@/types";
@@ -23,15 +27,17 @@ export function useAnalytics(refreshInterval = 30_000) {
     latency: null,
   });
 
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const intervalRef  = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastFetchRef = useRef<number>(0);
 
   const load = useCallback(async () => {
     const start = performance.now();
+    lastFetchRef.current = Date.now();
     try {
       const [analytics, workflows, metrics] = await Promise.all([
         fetchAnalytics(),
         fetchWorkflows(),
-        fetchMetrics().catch(() => null), // metrics failure shouldn't break the page
+        fetchMetrics().catch(() => null),
       ]);
       setState({
         analytics,
@@ -58,12 +64,23 @@ export function useAnalytics(refreshInterval = 30_000) {
       if (!document.hidden) void load();
     };
 
+    // M FIX: Only refetch on tab focus if data is stale (past the refresh interval).
+    // Without this check, every alt-tab triggers a full API round-trip unnecessarily.
+    const onVisibilityChange = () => {
+      if (!document.hidden) {
+        const age = Date.now() - lastFetchRef.current;
+        if (age >= refreshInterval) {
+          void load();
+        }
+      }
+    };
+
     intervalRef.current = setInterval(tick, refreshInterval);
-    document.addEventListener("visibilitychange", tick);
+    document.addEventListener("visibilitychange", onVisibilityChange);
 
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
-      document.removeEventListener("visibilitychange", tick);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [load, refreshInterval]);
 

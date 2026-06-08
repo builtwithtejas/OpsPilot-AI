@@ -1,6 +1,7 @@
-# backend/app/api/routes/ai.py
-# FIX: Converted to async def, Session → AsyncSession, service calls awaited.
+# C-1 FIX: analyze_logs() calls Gemini synchronously.
+# Wrapped with asyncio.to_thread() to avoid blocking the async event loop.
 
+import asyncio
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,7 +17,8 @@ router = APIRouter(prefix="/ai", tags=["AI"], dependencies=[Depends(require_api_
 
 @router.post("/analyze", response_model=AnalyzeResponse, summary="Analyze raw log text with AI")
 async def analyze(request: AnalyzeRequest, db: AsyncSession = Depends(get_db)):
-    result = analyze_logs(request.logs)
+    # C-1 FIX: run sync Gemini call in thread pool
+    result = await asyncio.to_thread(analyze_logs, request.logs)
 
     incident = await create_incident(
         db,

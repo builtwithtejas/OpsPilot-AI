@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.schemas.incident_schema import IncidentCreate
+import asyncio
 from app.services.ai_service import analyze_logs
 from app.services.audit_service import log_action
 from app.services.gitlab_service import (
@@ -146,7 +147,8 @@ async def run_agent(
     step3.status = "running"
     try:
         memory_context = await get_incidents_summary_for_memory(db)
-        analysis = analyze_logs(log_text, memory_context=memory_context)
+        # C-1 FIX: run sync Gemini call in thread pool
+        analysis = await asyncio.to_thread(analyze_logs, log_text, memory_context)
         step3.result = analysis
         step3.status = "done"
         logger.info("[%s] Step 3 done — severity: %s, confidence: %s%%", run.run_id, analysis["severity"], analysis["confidence"])

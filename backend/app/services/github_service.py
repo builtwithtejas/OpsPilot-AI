@@ -10,6 +10,9 @@ from app.core.config import settings
 from app.utils.logger import logger
 
 
+# H-5 FIX: Cache the Github client and repo object instead of recreating on every call.
+# The token does not change at runtime, so lru_cache(maxsize=1) is safe.
+@lru_cache(maxsize=1)
 def _get_repo():
     client = Github(settings.GITHUB_TOKEN)
     return client.get_repo(settings.GITHUB_REPO)
@@ -53,7 +56,7 @@ def get_workflow_runs(limit: int = 10) -> list[dict]:
                 created_at_str = str(created_at)
 
             # Safe actor extraction
-            actor_name = "builtwithtejas"
+            actor_name = "unknown"  # L FIX: removed hardcoded developer username fallback
 
             try:
                 triggering_actor = getattr(run, "triggering_actor", None)

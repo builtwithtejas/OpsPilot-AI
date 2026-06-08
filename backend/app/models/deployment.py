@@ -1,3 +1,8 @@
+# M NOTE: This model exists for schema completeness and future use.
+# Currently no service writes to the `deployments` table — workflow run data is
+# fetched live from the GitHub API and returned directly.
+# If you want to persist deployment history, add a service that writes here.
+# Do NOT delete this model — Alembic tracks the table and dropping it requires a migration.
 from datetime import datetime, timezone
 from sqlalchemy import Column, Integer, String, DateTime
 from app.database.database import Base

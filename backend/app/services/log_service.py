@@ -69,3 +69,12 @@ def _validate_upload(file: UploadFile) -> None:
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
             detail=f"Content type '{content_type}' not allowed.",
         )
+
+
+def delete_log_file(filepath: Path) -> None:
+    """H-4 FIX: Delete uploaded log file after processing to prevent unbounded disk growth."""
+    try:
+        filepath.unlink(missing_ok=True)
+        logger.info("Deleted log file: %s", filepath)
+    except OSError as exc:
+        logger.warning("Failed to delete log file %s: %s", filepath, exc)
