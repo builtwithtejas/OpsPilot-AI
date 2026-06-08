@@ -300,7 +300,7 @@ async def get_latest_commit_sha(
             raise ValueError(f"No commits found on branch {ref}")
         return commits[0]["id"]
     
-    async def create_fix_mr_workflow(
+async def create_fix_mr_workflow(
     project_id: str | int,
     filename: str,
     fixed_content: str,
@@ -308,7 +308,6 @@ async def get_latest_commit_sha(
     description: str,
     incident_id: int,
 ) -> str:
-
     base_sha = await get_latest_commit_sha(project_id)
 
     branch_name = await create_fix_branch(
