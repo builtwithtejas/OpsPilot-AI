@@ -19,7 +19,7 @@ from app.services.incident_service import (
 from app.services.audit_service import log_action, get_audit_log
 from app.services.notification_service import notify_all
 from app.services.ai_service import generate_auto_fix
-from app.services.gitlab_service import create_mr_with_fix
+from app.services.gitlab_service import create_fix_mr
 from app.utils.logger import logger
 
 router = APIRouter(prefix="/incidents", tags=["Incidents"], dependencies=[Depends(require_api_key)])
@@ -133,7 +133,7 @@ async def autofix_incident(incident_id: int, db: AsyncSession = Depends(get_db))
         )
 
     try:
-        mr_url = await create_mr_with_fix(
+        mr_url = await create_fix_mr(
             project_id=str(inc.pipeline_id),
             filename=fix["filename"],
             fixed_content=fix["fixed_content"],
