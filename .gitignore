@@ -19,3 +19,4 @@ frontend/.next/
 .DS_Store
 Thumbs.db*.zip
 venv/
+*.db
