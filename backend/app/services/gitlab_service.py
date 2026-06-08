@@ -299,3 +299,39 @@ async def get_latest_commit_sha(
         if not commits:
             raise ValueError(f"No commits found on branch {ref}")
         return commits[0]["id"]
+    
+    async def create_fix_mr_workflow(
+    project_id: str | int,
+    filename: str,
+    fixed_content: str,
+    commit_message: str,
+    description: str,
+    incident_id: int,
+) -> str:
+
+    base_sha = await get_latest_commit_sha(project_id)
+
+    branch_name = await create_fix_branch(
+        project_id,
+        incident_id,
+        base_sha,
+    )
+
+    await commit_fix(
+        project_id,
+        branch_name,
+        incident_id,
+        filename,
+        fixed_content,
+        commit_message,
+    )
+
+    mr = await create_fix_mr(
+        project_id=project_id,
+        branch_name=branch_name,
+        incident_id=incident_id,
+        title=f"OpsPilot Auto Fix #{incident_id}",
+        description=description,
+    )
+
+    return mr["url"]

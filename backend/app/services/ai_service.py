@@ -267,7 +267,7 @@ def generate_forecast(incident_summary: str) -> list[dict]:
             generation_config=genai.GenerationConfig(
                 temperature=0.2,
                 response_mime_type="application/json",
-                max_output_tokens=1000,
+                max_output_tokens=1500,  # increased for more reliable forecast output
             ),
         )
 
@@ -279,17 +279,26 @@ def generate_forecast(incident_summary: str) -> list[dict]:
         raw = re.sub(r"^```(?:json)?\s*", "", raw)
         raw = re.sub(r"\s*```$", "", raw)
 
-        parsed = json.loads(raw)
+        try:
+            parsed = json.loads(raw)
+        except Exception:
+            match = re.search(r"\[[\s\S]*\]", raw)
+            if match:
+                parsed = json.loads(match.group(0))
+            else:
+                logger.warning("Forecast JSON parsing failed")
+                return []
+
         if not isinstance(parsed, list):
             parsed = [parsed]
 
         return [
             {
-                "project":            str(item.get("project", "unknown")),
-                "risk_type":          str(item.get("risk_type", "Unknown")),
-                "description":        str(item.get("description", "")),
-                "confidence":         _clamp(item.get("confidence", 50)),
-                "timeframe":          str(item.get("timeframe", "Next 7 days")),
+                "project": str(item.get("project", "unknown")),
+                "risk_type": str(item.get("risk_type", "Unknown")),
+                "description": str(item.get("description", "")),
+                "confidence": _clamp(item.get("confidence", 50)),
+                "timeframe": str(item.get("timeframe", "Next 7 days")),
                 "recommended_action": str(item.get("recommended_action", "")),
             }
             for item in parsed[:3]
@@ -298,7 +307,6 @@ def generate_forecast(incident_summary: str) -> list[dict]:
     except Exception as exc:
         logger.warning("Forecast generation failed: %s", exc)
         return []
-
 
 # ── Auto-fix generation ───────────────────────────────────────────
 
