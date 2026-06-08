@@ -1,40 +1,58 @@
-from sqlalchemy.orm import Session
+# backend/app/services/project_service.py
+# FIX: Converted to async — uses AsyncSession and await db.execute(select(...)).
+
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from app.models.monitored_project import MonitoredProject
 from app.schemas.project_schema import ProjectCreate
 
 
-def get_all_projects(db: Session) -> list[MonitoredProject]:
-    return db.query(MonitoredProject).order_by(MonitoredProject.created_at.desc()).all()
+async def get_all_projects(db: AsyncSession) -> list[MonitoredProject]:
+    result = await db.execute(
+        select(MonitoredProject).order_by(MonitoredProject.created_at.desc())
+    )
+    return list(result.scalars().all())
 
 
-def get_project_by_gitlab_id(db: Session, gitlab_project_id: str) -> MonitoredProject | None:
-    return db.query(MonitoredProject).filter(
-        MonitoredProject.gitlab_project_id == gitlab_project_id
-    ).first()
+async def get_project_by_gitlab_id(
+    db: AsyncSession, gitlab_project_id: str
+) -> MonitoredProject | None:
+    result = await db.execute(
+        select(MonitoredProject).filter(
+            MonitoredProject.gitlab_project_id == gitlab_project_id
+        )
+    )
+    return result.scalar_one_or_none()
 
 
-def create_project(db: Session, data: ProjectCreate) -> MonitoredProject:
+async def create_project(db: AsyncSession, data: ProjectCreate) -> MonitoredProject:
     project = MonitoredProject(**data.model_dump())
     db.add(project)
-    db.commit()
-    db.refresh(project)
+    await db.commit()
+    await db.refresh(project)
     return project
 
 
-def delete_project(db: Session, project_id: int) -> bool:
-    project = db.query(MonitoredProject).filter(MonitoredProject.id == project_id).first()
+async def delete_project(db: AsyncSession, project_id: int) -> bool:
+    result = await db.execute(
+        select(MonitoredProject).filter(MonitoredProject.id == project_id)
+    )
+    project = result.scalar_one_or_none()
     if not project:
         return False
-    db.delete(project)
-    db.commit()
+    await db.delete(project)
+    await db.commit()
     return True
 
 
-def toggle_project(db: Session, project_id: int) -> MonitoredProject | None:
-    project = db.query(MonitoredProject).filter(MonitoredProject.id == project_id).first()
+async def toggle_project(db: AsyncSession, project_id: int) -> MonitoredProject | None:
+    result = await db.execute(
+        select(MonitoredProject).filter(MonitoredProject.id == project_id)
+    )
+    project = result.scalar_one_or_none()
     if not project:
         return None
     project.active = not project.active
-    db.commit()
-    db.refresh(project)
+    await db.commit()
+    await db.refresh(project)
     return project

@@ -1,47 +1,61 @@
 # backend/tests/conftest.py
-# Sets up an isolated in-memory SQLite database for every test session.
-# This ensures tests never touch your real database and are fully isolated.
-#
-# Add this file to backend/tests/conftest.py
+# FIX: Fully async conftest — uses AsyncSession to match the app's get_db dependency.
+# pytest-asyncio handles the event loop automatically with asyncio_mode = auto.
 
 import pytest
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+import pytest_asyncio
+from httpx import AsyncClient, ASGITransport
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 
 from app.database.database import Base
 from app.database.dependencies import get_db
 from app.main import app
 
-# In-memory SQLite for tests — fast, isolated, disposable
-TEST_DATABASE_URL = "sqlite:///./test_opspilot.db"
+# Isolated async SQLite for every test session
+TEST_DATABASE_URL = "sqlite+aiosqlite:///./test_opspilot.db"
 
-engine = create_engine(
+test_engine = create_async_engine(
     TEST_DATABASE_URL,
     connect_args={"check_same_thread": False},
+    echo=False,
 )
-TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+TestingSessionLocal = async_sessionmaker(
+    bind=test_engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
+    autocommit=False,
+    autoflush=False,
+)
 
 
-def override_get_db():
-    db = TestingSessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-
-@pytest.fixture(scope="session", autouse=True)
-def setup_test_db():
-    """Create all tables once for the test session."""
-    Base.metadata.create_all(bind=engine)
+@pytest_asyncio.fixture(scope="session", autouse=True)
+async def setup_test_db():
+    """Create all tables once for the test session, drop them on teardown."""
+    async with test_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
     yield
-    Base.metadata.drop_all(bind=engine)
+    async with test_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+    await test_engine.dispose()
 
 
-@pytest.fixture(autouse=True)
-def override_db():
-    """Override the DB dependency for every test."""
-    app.dependency_overrides[get_db] = override_get_db
+@pytest_asyncio.fixture(autouse=True)
+async def override_db():
+    """Override get_db with the test async session for every test."""
+    async def _override_get_db():
+        async with TestingSessionLocal() as session:
+            yield session
+
+    app.dependency_overrides[get_db] = _override_get_db
     yield
     app.dependency_overrides.clear()
+
+
+@pytest_asyncio.fixture
+async def client():
+    """Async HTTP client that talks directly to the FastAPI app in-process."""
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+    ) as ac:
+        yield ac

@@ -1,9 +1,12 @@
+# backend/app/api/routes/chat.py
+# FIX: Session → AsyncSession, get_incident_by_id awaited.
+
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 import google.generativeai as genai
 
@@ -27,8 +30,8 @@ class ChatRequest(BaseModel):
 
 
 @router.post("/stream", summary="AI chat about an incident — streams token by token")
-async def chat_stream(request: ChatRequest, db: Session = Depends(get_db)):
-    incident = get_incident_by_id(db, request.incident_id)
+async def chat_stream(request: ChatRequest, db: AsyncSession = Depends(get_db)):
+    incident = await get_incident_by_id(db, request.incident_id)
     if not incident:
         raise HTTPException(status_code=404, detail="Incident not found.")
 
@@ -47,15 +50,13 @@ Answer questions concisely and technically. Suggest exact commands and fixes."""
 
     genai.configure(api_key=settings.GEMINI_API_KEY)
     model = genai.GenerativeModel(
-         model_name=settings.GEMINI_MODEL,
+        model_name=settings.GEMINI_MODEL,
         system_instruction=system_prompt,
         generation_config=genai.GenerationConfig(temperature=0.3, max_output_tokens=800),
     )
 
-    # Build conversation history for Gemini
     history = []
     messages = list(request.messages)
-    # Last message is the new user query — rest is history
     for msg in messages[:-1]:
         role = "user" if msg.role == "user" else "model"
         history.append({"role": role, "parts": [msg.content]})

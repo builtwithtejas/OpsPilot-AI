@@ -1,8 +1,11 @@
+# backend/app/api/routes/agent.py
+# FIX: Session → AsyncSession so get_db's AsyncSession is typed correctly.
+
 from __future__ import annotations
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import require_api_key
 from app.database.dependencies import get_db
@@ -14,8 +17,8 @@ router = APIRouter(prefix="/agent", tags=["Agent"], dependencies=[Depends(requir
 
 
 class AgentTriggerRequest(BaseModel):
-    project_id: str              # GitLab project ID or namespace/name
-    pipeline_id: int | None = None  # optional — auto-detects latest failure if omitted
+    project_id: str
+    pipeline_id: int | None = None
 
 
 class GitLabProjectRequest(BaseModel):
@@ -23,7 +26,10 @@ class GitLabProjectRequest(BaseModel):
 
 
 @router.post("/run", summary="Trigger the full OpsPilot autonomous agent pipeline")
-async def trigger_agent(request: AgentTriggerRequest, db: Session = Depends(get_db)):
+async def trigger_agent(
+    request: AgentTriggerRequest,
+    db: AsyncSession = Depends(get_db),
+):
     """
     Runs the full 6-step agent:
     Detect → Gather logs → Gemini analysis → Record incident → GitLab issue + MR comment → Notify

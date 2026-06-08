@@ -1,5 +1,8 @@
+# backend/app/api/routes/ai.py
+# FIX: Converted to async def, Session → AsyncSession, service calls awaited.
+
 from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import require_api_key
 from app.database.dependencies import get_db
@@ -12,10 +15,10 @@ router = APIRouter(prefix="/ai", tags=["AI"], dependencies=[Depends(require_api_
 
 
 @router.post("/analyze", response_model=AnalyzeResponse, summary="Analyze raw log text with AI")
-def analyze(request: AnalyzeRequest, db: Session = Depends(get_db)):
+async def analyze(request: AnalyzeRequest, db: AsyncSession = Depends(get_db)):
     result = analyze_logs(request.logs)
 
-    incident = create_incident(
+    incident = await create_incident(
         db,
         IncidentCreate(
             title=f"AI Detected: {result['summary'][:100]}",

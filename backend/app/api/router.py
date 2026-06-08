@@ -1,5 +1,5 @@
 # backend/app/api/router.py
-# FIX: All routers consolidated here. Remove the scattered includes from main.py.
+# FIX: Registered the new auth router so POST /auth/token is accessible.
 
 from fastapi import APIRouter
 from app.api.routes import (
@@ -16,9 +16,11 @@ from app.api.routes import (
 )
 from app.api.routes.projects import router as projects_router
 from app.api.routes.forecast import router as forecast_router
+from app.api.routes.auth import router as auth_router       # FIX: new auth router
 
 api_router = APIRouter()
 
+api_router.include_router(auth_router)                      # FIX: token issuance endpoint
 api_router.include_router(health.router)
 api_router.include_router(ai.router)
 api_router.include_router(chat.router)

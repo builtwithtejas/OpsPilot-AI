@@ -1,5 +1,5 @@
 # backend/app/services/agent_service.py
-# FIX: Removed duplicate `create_incident` import (was imported on two separate lines).
+# FIX: Session → AsyncSession; all DB calls are now awaited.
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ plan → use tool → observe result → plan next step → use tool → finish
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.schemas.incident_schema import IncidentCreate
@@ -35,7 +35,6 @@ from app.services.gitlab_service import (
     post_pipeline_comment,
     trigger_duo_agent,
 )
-# FIX: Single clean import — no duplicate
 from app.services.incident_service import (
     create_incident,
     get_incident_by_pipeline_id,
@@ -66,7 +65,7 @@ class AgentRun:
 
 
 async def run_agent(
-    db: Session,
+    db: AsyncSession,
     project_id: str,
     pipeline_id: int | None = None,
     triggered_by: str = "manual",
@@ -146,7 +145,7 @@ async def run_agent(
     run.steps.append(step3)
     step3.status = "running"
     try:
-        memory_context = get_incidents_summary_for_memory(db)
+        memory_context = await get_incidents_summary_for_memory(db)
         analysis = analyze_logs(log_text, memory_context=memory_context)
         step3.result = analysis
         step3.status = "done"
@@ -163,7 +162,7 @@ async def run_agent(
     run.steps.append(step4)
     step4.status = "running"
     try:
-        incident = create_incident(db, IncidentCreate(
+        incident = await create_incident(db, IncidentCreate(
             title=f"[GitLab #{pipeline_id}] {analysis['summary'][:90]}",
             severity=analysis["severity"],
             status="Open",
@@ -173,7 +172,7 @@ async def run_agent(
             source="GitLab",
             pipeline_id=str(pipeline_id),
         ))
-        log_action(db, incident.id, "created", f"Auto-created by OpsPilot agent (pipeline #{pipeline_id})", actor="agent")
+        await log_action(db, incident.id, "created", f"Auto-created by OpsPilot agent (pipeline #{pipeline_id})", actor="agent")
         run.incident_id = incident.id
         step4.result = {"incident_id": incident.id}
         step4.status = "done"
@@ -200,7 +199,7 @@ async def run_agent(
         run.gitlab_issue_url = issue["url"]
 
         incident.gitlab_issue_url = issue["url"]
-        db.commit()
+        await db.commit()
 
         try:
             await post_pipeline_comment(project_id, pipeline_id, _build_mr_comment(analysis, issue["url"]))

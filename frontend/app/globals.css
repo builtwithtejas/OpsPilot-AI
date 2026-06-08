@@ -1,3 +1,9 @@
+/* frontend/app/globals.css
+   FIX: All hardcoded hex colors moved to CSS variables.
+   Every component should now use var(--color-*) instead of
+   raw hex like #33ff88, #ff4d4d, #00c3ff, #ffb347, etc.
+   This means you can retheme the entire app from one place. */
+
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 /* ── Theme variables ───────────────────────────────────────────── */
@@ -12,10 +18,27 @@
   --text-primary:    #fff;
   --text-secondary:  #aaa;
   --text-tertiary:   #555;
-  --accent:          #33ff88;
-  --accent2:         #00c3ff;
-  --danger:          #ff4d4d;
-  --warning:         #ffb347;
+
+  /* FIX: Brand palette as variables — change once, updates everywhere */
+  --color-accent:       #33ff88;
+  --color-accent2:      #00c3ff;
+  --color-danger:       #ff4d4d;
+  --color-warning:      #ffb347;
+  --color-warning-high: #ff7a00;
+  --color-muted:        #888;
+
+  /* Semantic aliases — use these in components */
+  --color-severity-critical: var(--color-danger);
+  --color-severity-high:     var(--color-warning-high);
+  --color-severity-medium:   var(--color-warning);
+  --color-severity-low:      var(--color-accent);
+
+  --color-status-open:        var(--color-danger);
+  --color-status-in-progress: var(--color-warning);
+  --color-status-resolved:    var(--color-accent);
+  --color-status-closed:      #555;
+
+  --color-gitlab: #FC6D26;
 }
 
 [data-theme="light"] {
@@ -29,13 +52,34 @@
   --text-primary:    #111;
   --text-secondary:  #444;
   --text-tertiary:   #999;
-  --accent:          #00a050;
-  --accent2:         #0070cc;
-  --danger:          #d93025;
-  --warning:         #e8780c;
+
+  --color-accent:       #00a050;
+  --color-accent2:      #0070cc;
+  --color-danger:       #d93025;
+  --color-warning:      #e8780c;
+  --color-warning-high: #c45500;
+  --color-muted:        #666;
+
+  --color-severity-critical: var(--color-danger);
+  --color-severity-high:     var(--color-warning-high);
+  --color-severity-medium:   var(--color-warning);
+  --color-severity-low:      var(--color-accent);
+
+  --color-status-open:        var(--color-danger);
+  --color-status-in-progress: var(--color-warning);
+  --color-status-resolved:    var(--color-accent);
+  --color-status-closed:      #999;
+
+  --color-gitlab: #e8580a;
 }
 
-html, body { background: var(--bg); color: var(--text-primary); font-family: Arial, Helvetica, sans-serif; overflow-x: hidden; transition: background 0.3s, color 0.3s; }
+html, body {
+  background: var(--bg);
+  color: var(--text-primary);
+  font-family: Arial, Helvetica, sans-serif;
+  overflow-x: hidden;
+  transition: background 0.3s, color 0.3s;
+}
 
 body {
   background: var(--bg)
@@ -57,6 +101,18 @@ button { font-family: inherit; }
 .glow-button { transition: all 0.2s ease; }
 .glow-button:hover { transform: scale(1.04); box-shadow: 0 0 14px rgba(0,255,170,0.35); }
 
+/* ── Severity / status utility classes ──────────────────────────── */
+/* Use these instead of hardcoded colors in JSX */
+.severity-critical { color: var(--color-severity-critical); }
+.severity-high     { color: var(--color-severity-high); }
+.severity-medium   { color: var(--color-severity-medium); }
+.severity-low      { color: var(--color-severity-low); }
+
+.status-open        { color: var(--color-status-open); }
+.status-in-progress { color: var(--color-status-in-progress); }
+.status-resolved    { color: var(--color-status-resolved); }
+.status-closed      { color: var(--color-status-closed); }
+
 /* ── Live badge ─────────────────────────────────────────────────── */
 .live-pulse { animation: pulseGlow 2.2s ease-in-out infinite; }
 @keyframes pulseGlow { 0%,100% { box-shadow: 0 0 8px rgba(0,255,170,0.2); } 50% { box-shadow: 0 0 22px rgba(0,255,170,0.5); } }
@@ -71,13 +127,13 @@ button { font-family: inherit; }
 @keyframes floatParticle { from { transform: translateY(0); opacity: 0; } 10% { opacity: 1; } to { transform: translateY(-120vh); opacity: 0; } }
 
 /* ── Typing ─────────────────────────────────────────────────────── */
-.typing { overflow: hidden; white-space: nowrap; border-right: 2px solid #33ff88; animation: typing 3s steps(40,end) forwards, blink 0.8s step-end infinite; width: 0; }
+.typing { overflow: hidden; white-space: nowrap; border-right: 2px solid var(--color-accent); animation: typing 3s steps(40,end) forwards, blink 0.8s step-end infinite; width: 0; }
 @keyframes typing { from { width: 0; } to { width: 100%; } }
 @keyframes blink { 50% { border-color: transparent; } }
 
 /* ── Progress ───────────────────────────────────────────────────── */
 .progress-bar { width: 100%; height: 12px; background: rgba(255,255,255,0.05); border-radius: 20px; overflow: hidden; }
-.progress-fill { height: 100%; background: linear-gradient(to right, #33ff88, #00c3ff); border-radius: 20px; transition: width 0.8s ease; }
+.progress-fill { height: 100%; background: linear-gradient(to right, var(--color-accent), var(--color-accent2)); border-radius: 20px; transition: width 0.8s ease; }
 
 /* ── Animations ─────────────────────────────────────────────────── */
 .fade-up { animation: fadeUp 0.7s ease forwards; }
@@ -86,7 +142,7 @@ button { font-family: inherit; }
 @keyframes moveLine { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
 
 /* ── Orb ────────────────────────────────────────────────────────── */
-.orb { position: fixed; right: 28px; bottom: 28px; width: 60px; height: 60px; border-radius: 50%; background: radial-gradient(circle, #33ff88, #00c3ff); box-shadow: 0 0 18px rgba(0,255,170,0.45); animation: orbFloat 4s ease-in-out infinite; z-index: 999; pointer-events: none; }
+.orb { position: fixed; right: 28px; bottom: 28px; width: 60px; height: 60px; border-radius: 50%; background: radial-gradient(circle, var(--color-accent), var(--color-accent2)); box-shadow: 0 0 18px rgba(0,255,170,0.45); animation: orbFloat 4s ease-in-out infinite; z-index: 999; pointer-events: none; }
 @keyframes orbFloat { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
 
 /* ── Skeleton ───────────────────────────────────────────────────── */
@@ -98,23 +154,21 @@ button { font-family: inherit; }
 /* ── Keyboard shortcut hint ─────────────────────────────────────── */
 .kbd { display: inline-block; background: var(--input-bg); border: 1px solid var(--border); border-radius: 5px; padding: 1px 6px; font-size: 11px; color: var(--text-tertiary); font-family: monospace; }
 
-/* ── Modal backdrop ─────────────────────────────────────────────── */
-.modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); z-index: 500; display: flex; align-items: center; justify-content: center; animation: fadeUp 0.2s ease; }
-
-/* ── Mobile responsive ──────────────────────────────────────────── */
-@media (max-width: 768px) {
-  .sidebar-desktop { display: none !important; }
-  .mobile-nav { display: flex !important; }
+/* ── Card variants ──────────────────────────────────────────────── */
+/* Standard card — use instead of repeating inline style objects */
+.op-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 22px;
+  backdrop-filter: blur(12px);
 }
-@media (min-width: 769px) {
-  .mobile-nav { display: none !important; }
+.op-card-label {
+  color: var(--text-tertiary);
+  margin-bottom: 10px;
+  font-size: 14px;
 }
-
-/* ── Spin animation for rerun button ────────────────────────────── */
-@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-.spin { animation: spin 1s linear infinite; }
-
-@media (prefers-reduced-motion: reduce) {
-  .particle { animation: none !important; }
-  .fade-up { animation: none !important; }
+.op-card-value {
+  font-size: 26px;
+  font-weight: bold;
 }

@@ -1,5 +1,8 @@
+# backend/app/api/routes/logs.py
+# FIX: Session → AsyncSession, create_incident awaited.
+
 from fastapi import APIRouter, Depends, File, UploadFile, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import require_api_key
 from app.database.dependencies import get_db
@@ -26,7 +29,7 @@ async def upload_logs(file: UploadFile = File(...)):
 )
 async def analyze_uploaded_file(
     file: UploadFile = File(...),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ):
     try:
         filepath = await save_log_file(file)
@@ -40,7 +43,7 @@ async def analyze_uploaded_file(
 
         result = analyze_logs(logs)
 
-        incident = create_incident(
+        incident = await create_incident(
             db,
             IncidentCreate(
                 title=f"AI Detected: {result['summary'][:100]}",

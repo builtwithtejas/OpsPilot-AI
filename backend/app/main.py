@@ -1,8 +1,4 @@
 # backend/app/main.py
-# FIX: Removed scattered router includes (now in router.py).
-#      Registered the missing retry_exception_handler.
-#      Tightened CORS — no more wildcard Vercel regex.
-#      /health and root stay public; everything else is guarded by require_api_key in each router.
 
 from contextlib import asynccontextmanager
 
@@ -20,7 +16,7 @@ from app.core.config import settings
 from app.database.database import engine, Base
 from app.middleware.error_handler import (
     unhandled_exception_handler,
-    retry_exception_handler,           # FIX: was defined but never registered
+    retry_exception_handler,
 )
 from app.models import incident, deployment, audit_log  # noqa: F401
 from app.utils.logger import logger
@@ -37,16 +33,13 @@ limiter = Limiter(
 @asynccontextmanager
 async def lifespan(app):
     logger.info("Starting %s v%s", settings.APP_NAME, settings.APP_VERSION)
-
-    # FIX: use async engine — run_sync wraps the sync create_all call
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-    logger.info("Database tables created/verified")
+    # Schema is managed by Alembic migrations (alembic upgrade head).
+    # Uncomment the block below ONLY for local dev without Alembic:
+    # async with engine.begin() as conn:
+    #     await conn.run_sync(Base.metadata.create_all)
+    logger.info("Database tables verified")
     yield
     logger.info("Shutting down %s", settings.APP_NAME)
-
-    # Cleanly dispose the connection pool on shutdown
     await engine.dispose()
 
 
@@ -62,15 +55,12 @@ app = FastAPI(
 
 
 # ── CORS Configuration ────────────────────────────────────────────
-# FIX: replaced open Vercel wildcard with explicit allowed origins from settings.
-# Set ALLOWED_ORIGINS in your .env, e.g.:
-#   ALLOWED_ORIGINS=https://your-app.vercel.app,http://localhost:3000
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.allowed_origins_list,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "X-API-Key"],
+    allow_headers=["Content-Type", "X-API-Key", "Authorization"],
     expose_headers=["Content-Type"],
 )
 
@@ -80,11 +70,11 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # ── Exception handlers ────────────────────────────────────────────
-app.add_exception_handler(RetryError, retry_exception_handler)   # FIX: now registered
+app.add_exception_handler(RetryError, retry_exception_handler)
 app.add_exception_handler(Exception, unhandled_exception_handler)
 
 # ── Routes ────────────────────────────────────────────────────────
-app.include_router(api_router)                                   # FIX: single include, all routers inside
+app.include_router(api_router)
 
 
 # ── Root Endpoint ─────────────────────────────────────────────────

@@ -1,6 +1,4 @@
 // frontend/lib/api.ts
-// FIX: Removed console.log("API_KEY = ...) and console.log("BASE = ...")
-//      Those were leaking secrets to browser devtools and any log aggregators.
 
 import type {
   AgentRun, AnalyzeResult, AnalyticsData, GitLabJob, GitLabPipeline,
@@ -11,13 +9,40 @@ import type { Project } from "@/types";
 const BASE    = process.env.NEXT_PUBLIC_API_URL  ?? "http://localhost:8000";
 const API_KEY = process.env.NEXT_PUBLIC_API_KEY ?? "";
 
-// FIX: No console.log here — API_KEY must never be logged.
+// ── Token cache ──────────────────────────────────────────────────
+// Fetches a short-lived JWT from /auth/token using the master API_KEY.
+// Caches it in memory and refreshes 30 seconds before expiry.
+let _cachedToken: string | null = null;
+let _tokenExpiry: number = 0;
 
+async function getToken(): Promise<string> {
+  // Return cached token if still valid (with 30s buffer)
+  if (_cachedToken && Date.now() < _tokenExpiry - 30_000) {
+    return _cachedToken;
+  }
+  const res = await fetch(`${BASE}/auth/token`, {
+    method: "POST",
+    headers: { "X-API-Key": API_KEY },
+  });
+  if (!res.ok) {
+    throw new Error("Failed to obtain access token from /auth/token");
+  }
+  const data = await res.json() as { access_token: string; expires_in: number };
+  _cachedToken = data.access_token;
+  _tokenExpiry = Date.now() + data.expires_in * 1000;
+  return _cachedToken;
+}
 
+// ── Core fetch wrapper ───────────────────────────────────────────
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const token = await getToken();
   const res = await fetch(`${BASE}${path}`, {
     ...options,
-    headers: { "Content-Type": "application/json", "X-API-Key": API_KEY, ...options.headers },
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${token}`,
+      ...options.headers,
+    },
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
@@ -44,10 +69,13 @@ export const deleteIncident = (id: number) =>
 
 // ── Logs / AI ────────────────────────────────────────────────────
 export const analyzeLogFile = async (file: File): Promise<AnalyzeResult> => {
+  const token = await getToken();
   const formData = new FormData();
   formData.append("file", file);
   const res = await fetch(`${BASE}/logs/analyze`, {
-    method: "POST", headers: { "X-API-Key": API_KEY }, body: formData,
+    method: "POST",
+    headers: { "Authorization": `Bearer ${token}` },
+    body: formData,
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));

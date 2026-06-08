@@ -23,3 +23,6 @@ aiosqlite==0.20.0              # SQLite async driver (dev + tests)
 # Google Cloud / Gemini
 google-generativeai==0.8.3
 google-cloud-aiplatform==1.71.1
+
+alembic==1.13.3
+python-jose[cryptography]==3.3.0

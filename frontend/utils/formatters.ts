@@ -1,3 +1,8 @@
+// frontend/utils/formatters.ts
+// FIX: severityColor and statusColor now return CSS variable references
+// instead of hardcoded hex strings. This means changing the theme in
+// globals.css automatically updates every badge, card, and label.
+
 export function formatUptime(seconds: number): string {
   const d = Math.floor(seconds / 86400);
   const h = Math.floor((seconds % 86400) / 3600);
@@ -7,30 +12,31 @@ export function formatUptime(seconds: number): string {
   return `${m}m`;
 }
 
+// FIX: returns CSS variable references — no hardcoded hex
 export function severityColor(severity: string): string {
   switch (severity) {
-    case "Critical": return "#ff4d4d";
-    case "High":     return "#ff7a00";
-    case "Medium":   return "#ffb347";
-    case "Low":      return "#33ff88";
-    default:         return "#888";
+    case "Critical": return "var(--color-severity-critical)";
+    case "High":     return "var(--color-severity-high)";
+    case "Medium":   return "var(--color-severity-medium)";
+    case "Low":      return "var(--color-severity-low)";
+    default:         return "var(--color-muted)";
   }
 }
 
 export function statusColor(status: string): string {
   switch (status) {
-    case "Open":        return "#ff4d4d";
-    case "In Progress": return "#ffb347";
-    case "Resolved":    return "#33ff88";
-    case "Closed":      return "#555";
-    default:            return "#888";
+    case "Open":        return "var(--color-status-open)";
+    case "In Progress": return "var(--color-status-in-progress)";
+    case "Resolved":    return "var(--color-status-resolved)";
+    case "Closed":      return "var(--color-status-closed)";
+    default:            return "var(--color-muted)";
   }
 }
 
 export function conclusionColor(conclusion: string | null): string {
-  if (conclusion === "success") return "#33ff88";
-  if (conclusion === "failure") return "#ff4d4d";
-  return "#ffb347";
+  if (conclusion === "success") return "var(--color-accent)";
+  if (conclusion === "failure") return "var(--color-danger)";
+  return "var(--color-warning)";
 }
 
 export function timeAgo(dateStr: string): string {

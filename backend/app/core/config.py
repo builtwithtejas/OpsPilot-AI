@@ -1,5 +1,6 @@
 # backend/app/core/config.py
-# FIX: Added MAX_LOG_CHARS setting so log truncation is configurable via .env
+# FIX: Added JWT_SECRET_KEY and TOKEN_EXPIRE_MINUTES for the new token system.
+# Generate a key with: python -c "import secrets; print(secrets.token_hex(32))"
 
 from pydantic_settings import BaseSettings
 from functools import lru_cache
@@ -11,8 +12,13 @@ class Settings(BaseSettings):
     DEBUG: bool      = False
     GEMINI_MODEL: str = "gemini-2.5-flash"
 
-    # Auth
+    # ── Auth ────────────────────────────────────────────────────────
+    # Master key — used only to issue JWT tokens via POST /auth/token
     API_KEY: str = ""
+    # JWT signing secret — generate once, keep secret, never share
+    JWT_SECRET_KEY: str = ""
+    # How long issued tokens live (in minutes)
+    TOKEN_EXPIRE_MINUTES: int = 60
 
     # ── Google Cloud / Gemini ───────────────────────────────────────
     GEMINI_API_KEY:        str = ""
@@ -43,17 +49,12 @@ class Settings(BaseSettings):
     DATABASE_URL: str = ""
 
     # ── CORS ────────────────────────────────────────────────────────
-    # Comma-separated list of allowed origins.
-    # Example in .env:
-    #   ALLOWED_ORIGINS=https://your-app.vercel.app,http://localhost:3000
     ALLOWED_ORIGINS: str = "http://localhost:3000"
 
     # ── Uploads ─────────────────────────────────────────────────────
     MAX_UPLOAD_SIZE_MB: int = 10
 
     # ── AI Log Analysis ─────────────────────────────────────────────
-    # FIX: Configurable log truncation limit (characters sent to Gemini).
-    # Increase this if you need deeper log analysis; decrease to save tokens.
     MAX_LOG_CHARS: int = 8000
 
     @property

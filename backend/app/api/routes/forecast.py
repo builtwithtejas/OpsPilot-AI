@@ -1,8 +1,12 @@
+# backend/app/api/routes/forecast.py
+# FIX: Converted to async def, Session → AsyncSession, service calls awaited.
+
 from __future__ import annotations
 
 import time
 from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.core.security import require_api_key
 from app.database.dependencies import get_db
 from app.services.incident_service import get_incidents_summary_for_memory
@@ -17,9 +21,9 @@ _TTL = 6 * 3600
 
 
 @router.get("/", summary="Get predictive risk forecast based on incident history")
-def get_forecast(
+async def get_forecast(
     refresh: bool = False,
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
     _=Depends(require_api_key),
 ):
     global _cache
@@ -34,7 +38,7 @@ def get_forecast(
         }
 
     logger.info("Forecast: generating new forecast from incident history")
-    summary = get_incidents_summary_for_memory(db, limit=30)
+    summary = await get_incidents_summary_for_memory(db, limit=30)
     forecasts = generate_forecast(summary)
 
     _cache = {"data": forecasts, "ts": now}
