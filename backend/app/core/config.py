@@ -1,3 +1,6 @@
+# backend/app/core/config.py
+# FIX: Added MAX_LOG_CHARS setting so log truncation is configurable via .env
+
 from pydantic_settings import BaseSettings
 from functools import lru_cache
 
@@ -11,9 +14,9 @@ class Settings(BaseSettings):
     # Auth
     API_KEY: str = ""
 
-    # ── Google Cloud / Gemini (hackathon required) ──────────────────
-    GEMINI_API_KEY:        str = ""   # from Google AI Studio
-    GOOGLE_CLOUD_PROJECT:  str = ""   # your GCP project ID
+    # ── Google Cloud / Gemini ───────────────────────────────────────
+    GEMINI_API_KEY:        str = ""
+    GOOGLE_CLOUD_PROJECT:  str = ""
     GOOGLE_CLOUD_LOCATION: str = "us-central1"
 
     # ── GitHub ──────────────────────────────────────────────────────
@@ -22,9 +25,8 @@ class Settings(BaseSettings):
     GITHUB_WEBHOOK_SECRET: str = ""
 
     # ── GitLab MCP ─────────────────────────────────────────────────
-    GITLAB_TOKEN:    str = ""   # GitLab Personal Access Token
+    GITLAB_TOKEN:    str = ""
     GITLAB_BASE_URL: str = "https://gitlab.com"
-    # ── GitLab Duo Agent Platform ───────────────────────────────────
     GITLAB_AGENT_ID:  str = "1009889"
     GITLAB_MCP_URL:   str = "https://gitlab.com/api/v4/ai/agents/1009889/mcp"
     GITLAB_GROUP:     str = "opspilot-ai-hackathon"
@@ -41,10 +43,18 @@ class Settings(BaseSettings):
     DATABASE_URL: str = ""
 
     # ── CORS ────────────────────────────────────────────────────────
+    # Comma-separated list of allowed origins.
+    # Example in .env:
+    #   ALLOWED_ORIGINS=https://your-app.vercel.app,http://localhost:3000
     ALLOWED_ORIGINS: str = "http://localhost:3000"
 
-    # ── Uploads ────────────────────────────────────────────────────
+    # ── Uploads ─────────────────────────────────────────────────────
     MAX_UPLOAD_SIZE_MB: int = 10
+
+    # ── AI Log Analysis ─────────────────────────────────────────────
+    # FIX: Configurable log truncation limit (characters sent to Gemini).
+    # Increase this if you need deeper log analysis; decrease to save tokens.
+    MAX_LOG_CHARS: int = 8000
 
     @property
     def allowed_origins_list(self) -> list[str]:

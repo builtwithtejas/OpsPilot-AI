@@ -1,3 +1,6 @@
+# backend/app/api/router.py
+# FIX: All routers consolidated here. Remove the scattered includes from main.py.
+
 from fastapi import APIRouter
 from app.api.routes import (
     agent,
@@ -11,8 +14,11 @@ from app.api.routes import (
     metrics,
     webhooks,
 )
+from app.api.routes.projects import router as projects_router
+from app.api.routes.forecast import router as forecast_router
 
 api_router = APIRouter()
+
 api_router.include_router(health.router)
 api_router.include_router(ai.router)
 api_router.include_router(chat.router)
@@ -23,3 +29,5 @@ api_router.include_router(metrics.router)
 api_router.include_router(github_routes.router)
 api_router.include_router(gitlab_routes.router)
 api_router.include_router(webhooks.router)
+api_router.include_router(projects_router)
+api_router.include_router(forecast_router)

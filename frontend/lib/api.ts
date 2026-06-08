@@ -1,13 +1,17 @@
+// frontend/lib/api.ts
+// FIX: Removed console.log("API_KEY = ...) and console.log("BASE = ...")
+//      Those were leaking secrets to browser devtools and any log aggregators.
+
 import type {
   AgentRun, AnalyzeResult, AnalyticsData, GitLabJob, GitLabPipeline,
   Incident, SystemMetrics, WorkflowRun,
 } from "@/types";
+import type { Project } from "@/types";
 
 const BASE    = process.env.NEXT_PUBLIC_API_URL  ?? "http://localhost:8000";
 const API_KEY = process.env.NEXT_PUBLIC_API_KEY ?? "";
-console.log("API_KEY =", API_KEY);
-console.log("BASE =", BASE);
-import type { Project } from "@/types";
+
+// FIX: No console.log here — API_KEY must never be logged.
 
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -77,7 +81,7 @@ export const downloadIncidentPdf = async (incidents: Incident[], analytics: Anal
   const doc = new jsPDF();
   doc.setFontSize(22); doc.text("OpsPilot AI — Incident Report", 20, 20);
   doc.setFontSize(11); doc.text(`Generated: ${new Date().toLocaleString()}`, 20, 30);
-  doc.setFontSize(10); doc.text("Powered by Google Gemini × GitLab MCP", 20, 38);
+  doc.setFontSize(10); doc.text("Powered by Google Gemini x GitLab MCP", 20, 38);
   if (analytics) {
     doc.setFontSize(15); doc.text("System Overview", 20, 52);
     doc.setFontSize(11);
@@ -94,5 +98,6 @@ export const downloadIncidentPdf = async (incidents: Incident[], analytics: Anal
   });
   doc.save("OpsPilot-Report.pdf");
 };
-// Projects
+
+// ── Projects ─────────────────────────────────────────────────────
 export const fetchProjects = () => request<Project[]>("/projects/");

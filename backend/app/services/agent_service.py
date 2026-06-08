@@ -1,3 +1,6 @@
+# backend/app/services/agent_service.py
+# FIX: Removed duplicate `create_incident` import (was imported on two separate lines).
+
 from __future__ import annotations
 
 """
@@ -32,10 +35,15 @@ from app.services.gitlab_service import (
     post_pipeline_comment,
     trigger_duo_agent,
 )
-from app.services.incident_service import create_incident
+# FIX: Single clean import — no duplicate
+from app.services.incident_service import (
+    create_incident,
+    get_incident_by_pipeline_id,
+    get_incidents_summary_for_memory,
+)
 from app.services.notification_service import notify_all
 from app.utils.logger import logger
-from app.services.incident_service import create_incident, get_incident_by_pipeline_id, get_incidents_summary_for_memory
+
 
 @dataclass
 class AgentStep:
@@ -112,11 +120,9 @@ async def run_agent(
         failed_jobs = [j for j in jobs if j["status"] == "failed"]
         log_text = _build_log_text(step1.result, failed_jobs)
 
-        # Fetch real job traces — cap at 1500 chars per job to avoid Gemini truncation
         for job in failed_jobs[:2]:
             try:
                 trace = await get_job_trace(project_id, job["id"])
-                # Take last 1500 chars — errors appear at the end
                 log_text += f"\n\n===== JOB: {job['name']} =====\n{trace[-1500:]}"
             except Exception as te:
                 logger.warning("Unable to fetch trace for job %s: %s", job["id"], te)
@@ -165,7 +171,7 @@ async def run_agent(
             remediation=analysis["remediation"],
             confidence=analysis["confidence"],
             source="GitLab",
-            pipeline_id=str(pipeline_id),    # ← FIX: cast int to str, Pydantic requires str
+            pipeline_id=str(pipeline_id),
         ))
         log_action(db, incident.id, "created", f"Auto-created by OpsPilot agent (pipeline #{pipeline_id})", actor="agent")
         run.incident_id = incident.id
@@ -187,17 +193,15 @@ async def run_agent(
         issue_body = _build_issue_body(analysis, incident.id, run.run_id)
         issue = await create_gitlab_issue(
             project_id,
-            title=f"🔴 OpsPilot: {analysis['severity']} — {analysis['summary'][:80]}",
+            title=f"[OpsPilot] {analysis['severity']} — {analysis['summary'][:80]}",
             description=issue_body,
             labels=["opspilot", "incident", analysis["severity"].lower(), "ci-cd"],
         )
         run.gitlab_issue_url = issue["url"]
 
-        # Update incident record with GitLab issue URL
         incident.gitlab_issue_url = issue["url"]
         db.commit()
 
-        # Try MR comment — non-fatal
         try:
             await post_pipeline_comment(project_id, pipeline_id, _build_mr_comment(analysis, issue["url"]))
         except Exception:
@@ -266,7 +270,7 @@ def _build_log_text(pipeline_info: dict, failed_jobs: list[dict]) -> str:
 
 
 def _build_issue_body(analysis: dict, incident_id: int, run_id: str) -> str:
-    return f"""## 🤖 OpsPilot AI — Automated Incident Report
+    return f"""## OpsPilot AI — Automated Incident Report
 
 **Run ID:** `{run_id}`
 **OpsPilot Incident:** #{incident_id}
@@ -275,24 +279,24 @@ def _build_issue_body(analysis: dict, incident_id: int, run_id: str) -> str:
 
 ---
 
-### 📋 Summary
+### Summary
 {analysis['summary']}
 
-### 🔍 Root Cause
+### Root Cause
 {analysis['root_cause']}
 
-### 🛠 Remediation Steps
+### Remediation Steps
 {analysis['remediation']}
 
 ---
 
 *Automatically created by OpsPilot AI — AI-Powered CI/CD Incident Intelligence.*
-*Severity: **{analysis['severity']}** · Powered by Google Gemini 2.5 Flash × GitLab MCP*
+*Severity: **{analysis['severity']}** · Powered by Google Gemini 2.5 Flash x GitLab MCP*
 """
 
 
 def _build_mr_comment(analysis: dict, issue_url: str) -> str:
-    return f"""### 🤖 OpsPilot AI — Pipeline Failure Analysis
+    return f"""### OpsPilot AI — Pipeline Failure Analysis
 
 **Severity:** {analysis['severity']} | **Confidence:** {analysis['confidence']}%
 
@@ -300,6 +304,6 @@ def _build_mr_comment(analysis: dict, issue_url: str) -> str:
 
 **Remediation:** {analysis['remediation'][:400]}
 
-📋 Full incident report: {issue_url}
+Full incident report: {issue_url}
 
-*Powered by OpsPilot AI × Google Gemini 2.5 Flash*"""
+*Powered by OpsPilot AI x Google Gemini 2.5 Flash*"""

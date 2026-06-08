@@ -1,7 +1,14 @@
+# backend/app/services/ai_service.py
+# FIX 1: Gemini model is now cached — configured once, not on every request.
+#         Cache is invalidated automatically if GEMINI_API_KEY or GEMINI_MODEL changes.
+# FIX 2: MAX_LOG_CHARS is now read from settings (add MAX_LOG_CHARS=8000 in .env).
+#         Logs a warning when truncation happens so you know it occurred.
+
 from __future__ import annotations
 
 import json
 import re
+from functools import lru_cache
 
 import google.generativeai as genai
 from tenacity import retry, stop_after_attempt, wait_exponential
@@ -10,7 +17,7 @@ from app.core.config import settings
 from app.utils.logger import logger
 
 
-# ── Prompts (module-level constants) ─────────────────────────────
+# ── Prompts ───────────────────────────────────────────────────────
 
 _SYSTEM_PROMPT = """
 You are an elite DevOps AI engineer specializing in CI/CD incident response.
@@ -91,14 +98,22 @@ Schema:
 """.strip()
 
 
-# ── Helpers ───────────────────────────────────────────────────────
+# ── Model cache ───────────────────────────────────────────────────
+# FIX: Cache the configured model instance keyed on (api_key, model_name).
+#      This avoids reconfiguring genai on every single request.
+
+@lru_cache(maxsize=4)
+def _get_cached_model(api_key: str, model_name: str):
+    genai.configure(api_key=api_key)
+    logger.info("Gemini model configured: %s", model_name)
+    return genai.GenerativeModel(model_name=model_name)
+
 
 def _get_model():
-    """Fresh configure every call — picks up new GEMINI_API_KEY without restart."""
-    genai.configure(api_key=settings.GEMINI_API_KEY)
-    logger.info("Using Gemini model: %s", settings.GEMINI_MODEL)
-    return genai.GenerativeModel(model_name=settings.GEMINI_MODEL)
+    return _get_cached_model(settings.GEMINI_API_KEY, settings.GEMINI_MODEL)
 
+
+# ── Helpers ───────────────────────────────────────────────────────
 
 def _extract_json(raw: str) -> dict:
     raw = raw.strip()
@@ -140,6 +155,18 @@ def _clamp(value) -> int:
         return 50
 
 
+def _truncate_logs(logs: str) -> str:
+    """Truncate logs to MAX_LOG_CHARS, warning when truncation occurs."""
+    max_chars = getattr(settings, "MAX_LOG_CHARS", 8000)   # FIX: configurable, default 8000
+    if len(logs) > max_chars:
+        logger.warning(
+            "Log truncated from %d to %d chars. Set MAX_LOG_CHARS in .env to increase.",
+            len(logs), max_chars,
+        )
+        return logs[:max_chars]
+    return logs
+
+
 # ── Core log analysis ─────────────────────────────────────────────
 
 @retry(
@@ -149,9 +176,7 @@ def _clamp(value) -> int:
 def analyze_logs(logs: str, memory_context: str = "") -> dict:
     try:
         model = _get_model()
-
-        MAX_LOG_CHARS = 1500
-        logs = logs[:MAX_LOG_CHARS]
+        logs = _truncate_logs(logs)      # FIX: uses configurable limit with warning
 
         memory_section = (
             f"\n\nHistorical context from past incidents:\n{memory_context}"

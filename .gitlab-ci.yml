@@ -1,0 +1,69 @@
+# .gitlab-ci.yml  (place at the repo root, one level above backend/ and frontend/)
+# FIX: OpsPilot CI/CD tool now has its own CI/CD pipeline.
+#
+# Required GitLab CI/CD variables (Settings → CI/CD → Variables):
+#   API_KEY          — your OpsPilot API key (used by tests)
+#   DATABASE_URL     — sqlite:///./test.db  (or a test Postgres URL)
+
+stages:
+  - lint
+  - test
+  - build
+
+# ── Backend ───────────────────────────────────────────────────────
+
+backend:lint:
+  stage: lint
+  image: python:3.11-slim
+  script:
+    - pip install ruff --quiet
+    - ruff check backend/app backend/tests
+  rules:
+    - changes:
+        - backend/**/*
+
+backend:test:
+  stage: test
+  image: python:3.11-slim
+  variables:
+    DATABASE_URL: "sqlite:///./test_opspilot.db"
+    API_KEY: "ci-test-key"
+    GEMINI_API_KEY: ""          # AI calls are not made in unit tests
+    GITHUB_TOKEN: ""
+    GITLAB_TOKEN: ""
+  script:
+    - pip install -r backend/requirements.txt --quiet
+    - cd backend
+    - pytest tests/ -v --tb=short
+  artifacts:
+    reports:
+      junit: backend/test-results.xml
+    when: always
+  rules:
+    - changes:
+        - backend/**/*
+
+# ── Frontend ─────────────────────────────────────────────────────
+
+frontend:lint:
+  stage: lint
+  image: node:20-slim
+  script:
+    - cd frontend
+    - npm ci --quiet
+    - npm run lint
+    - npm run type-check
+  rules:
+    - changes:
+        - frontend/**/*
+
+frontend:build:
+  stage: build
+  image: node:20-slim
+  script:
+    - cd frontend
+    - npm ci --quiet
+    - npm run build
+  rules:
+    - changes:
+        - frontend/**/*
