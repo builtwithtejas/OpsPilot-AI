@@ -18,6 +18,8 @@
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
+class Base(DeclarativeBase):
+    pass
 from app.core.config import settings
 
 # Detect SQLite (dev) vs Postgres (prod) — both need async drivers
