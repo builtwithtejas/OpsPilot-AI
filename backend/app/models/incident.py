@@ -21,15 +21,23 @@ class Incident(Base):
     # add after gitlab_issue_url:
     autofix_mr_url   = Column(String, nullable=True)  # link to auto-fix MR
 
-    created_at = Column(
-    DateTime,
-    default=datetime.utcnow,
-    nullable=False,
-)
+created_at = Column(
 
-updated_at = Column(
     DateTime,
-    default=datetime.utcnow,
-    onupdate=datetime.utcnow,
+
     nullable=False,
+
+    default=datetime.utcnow,
+
+)
+updated_at = Column(
+
+    DateTime,
+
+    nullable=False,
+
+    default=datetime.utcnow,
+
+    onupdate=datetime.utcnow,
+
 )
