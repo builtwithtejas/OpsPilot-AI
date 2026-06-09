@@ -16,12 +16,34 @@ async function getToken(): Promise<string> {
   if (_cachedToken && Date.now() < _tokenExpiry - 30_000) {
     return _cachedToken;
   }
-  const res = await fetch("/api/token", { method: "POST" });
-  if (!res.ok) throw new Error("Failed to obtain access token");
-  const data = await res.json() as { access_token: string; expires_in: number };
-  _cachedToken = data.access_token;
-  _tokenExpiry = Date.now() + data.expires_in * 1000;
-  return _cachedToken;
+
+  // FIX: Add a 12-second timeout so a Render cold start (which can take 10-30s)
+  // doesn't cause the entire app to hang on a skeleton screen indefinitely.
+  // Without this, fetch() waits forever, blocking every API call on the page.
+  const controller = new AbortController();
+  const timeoutId  = setTimeout(() => controller.abort(), 12_000);
+
+  try {
+    const res = await fetch("/api/token", {
+      method: "POST",
+      signal: controller.signal,
+    });
+    if (!res.ok) throw new Error("Failed to obtain access token");
+    const data = await res.json() as { access_token: string; expires_in: number };
+    _cachedToken = data.access_token;
+    _tokenExpiry = Date.now() + data.expires_in * 1000;
+    return _cachedToken;
+  } catch (err) {
+    // Clear any stale cached token so the next request tries fresh
+    _cachedToken = null;
+    _tokenExpiry = 0;
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new Error("Backend is starting up — please wait a moment and refresh");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 // ── Core fetch wrapper ───────────────────────────────────────────
@@ -39,8 +61,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error((err as { detail: string }).detail ?? "Request failed");
   }
-  // FIX: 204 No Content (DELETE responses) has an empty body.
-  // Calling res.json() on an empty body throws a SyntaxError.
+  // FIX: 204 No Content (DELETE) has an empty body — res.json() would throw.
   if (res.status === 204) return undefined as unknown as T;
   return res.json() as Promise<T>;
 }
@@ -63,7 +84,6 @@ export const fetchIncidentAudit = (id: number | string) =>
 export const updateIncidentStatus = (id: number, status: string) =>
   request<Incident>(`/incidents/${id}`, { method: "PATCH", body: JSON.stringify({ status }) });
 
-// FIX: returns void — 204 is now handled in request() above, no JSON parse attempt.
 export const deleteIncident = (id: number) =>
   request<void>(`/incidents/${id}`, { method: "DELETE" });
 
@@ -104,7 +124,7 @@ export const fetchFailedPipelines = (projectId: string) =>
 export const fetchPipelineJobs = (projectId: string, pipelineId: number) =>
   request<{ pipeline_id: number; jobs: GitLabJob[] }>(`/agent/pipelines/${projectId}/${pipelineId}/jobs`);
 
-// ── GitLab ───────────────────────────────────────────────────────
+// ── GitHub rerun ─────────────────────────────────────────────────
 export const triggerWorkflowRerun = (workflowUrl: string) =>
   request<{ message: string }>("/github/rerun", {
     method: "POST", body: JSON.stringify({ workflow_url: workflowUrl }),
@@ -125,7 +145,6 @@ export const registerProject = (payload: { gitlab_project_id: string; name: stri
 export const toggleProject = (id: number) =>
   request<{ id: number; active: boolean }>(`/projects/${id}/toggle`, { method: "PATCH" });
 
-// FIX: returns void — 204 No Content handled in request().
 export const removeProject = (id: number) =>
   request<void>(`/projects/${id}`, { method: "DELETE" });
 
@@ -169,7 +188,7 @@ export const downloadIncidentPdf = async (incidents: Incident[], analytics: Anal
   doc.save("OpsPilot-Report.pdf");
 };
 
-// ── Shared types used by callers ──────────────────────────────────
+// ── Shared types ──────────────────────────────────────────────────
 export interface AuditEntry {
   id: number;
   action: string;

@@ -1,154 +1,270 @@
 "use client";
-// FIX C-5: seedDemoData() now uses createIncident() from lib/api.ts instead of
-// calling fetch() directly with NEXT_PUBLIC_API_KEY. Key stays server-side.
 
-import { useMemo, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
+import { useParams, useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
-import IncidentCard from "@/components/IncidentCard";
-import IncidentFilters from "@/components/IncidentFilters";
-import { useIncidents } from "@/hooks/useIncidents";
-import { useSearch } from "@/hooks/useSearch";
-import { exportIncidentsCSV } from "@/utils/formatters";
-import { downloadIncidentPdf, createIncident } from "@/lib/api";
-import { FileText, ChevronLeft, ChevronRight } from "lucide-react";
-import type { IncidentStatus } from "@/types";
+import ChatPanel from "@/components/ChatPanel";
+import SimilarIncidents from "@/components/SimilarIncidents";
+import AutoFixButton from "@/components/AutoFixButton";
+import { severityColor, statusColor, timeAgo } from "@/utils/formatters";
+import { MessageSquare, ArrowLeft, Clock, Link2 } from "lucide-react";
+import type { Incident, IncidentStatus } from "@/types";
+import {
+  updateIncidentStatus,
+  fetchIncidents,
+  fetchIncidentById,
+  fetchIncidentAudit,
+  type AuditEntry,
+} from "@/lib/api";
 
-const PAGE_SIZE = 10;
+const STATUSES: IncidentStatus[] = ["Open", "In Progress", "Resolved", "Closed"];
 
-const SEED_INCIDENTS = [
-  { title: "Build failure in CI pipeline",    severity: "Critical" as const, status: "Open" as const,        description: "npm build failed due to missing dependency react-dom@18.3.0 in package-lock.json.",                  remediation: "1. Run npm install\n2. Commit updated package-lock.json\n3. Re-trigger pipeline",    confidence: 94 },
-  { title: "Docker image push timeout",       severity: "High" as const,     status: "In Progress" as const, description: "Docker push to registry exceeded 5 minute timeout. Registry returned 503 Service Unavailable.", remediation: "1. Check registry status\n2. Retry with --timeout\n3. Switch to backup registry",     confidence: 88 },
-  { title: "Unit test coverage below 80%",    severity: "Medium" as const,   status: "Open" as const,        description: "Test coverage dropped to 67%, below the required 80% threshold in jest.config.js.",               remediation: "1. Run: npm test -- --coverage\n2. Add tests for uncovered modules",                   confidence: 76 },
-  { title: "Security scan: 2 high CVEs",      severity: "High" as const,     status: "Open" as const,        description: "Trivy detected CVE-2024-29041 in express@4.18.2 and CVE-2024-28863 in tar@6.1.11.",             remediation: "1. Update express to >=4.19.2\n2. Update tar to >=6.2.1\n3. npm audit fix",          confidence: 97 },
-  { title: "Deployment rollback triggered",   severity: "Low" as const,      status: "Resolved" as const,    description: "Canary deployment showed 2% error rate increase, automatic rollback triggered.",                   remediation: "Investigate error logs from canary pods before re-deploying.",                         confidence: 82 },
-];
+const ACTION_COLORS: Record<string, string> = {
+  created:          "#33ff88",
+  status_changed:   "#00c3ff",
+  deleted:          "#ff4d4d",
+  severity_changed: "#ffb347",
+  autofix_created:  "#1E8E3E",
+};
 
-export default function IncidentsPage() {
-  const { incidents, loading, error, refresh, updateStatus, remove } = useIncidents();
-  const { query, setQuery, severityFilter, setSeverityFilter, statusFilter, setStatusFilter, filtered } = useSearch(incidents);
-  const [page, setPage] = useState(1);
-  const [seeding, setSeeding] = useState(false);
+export default function IncidentDetailPage() {
+  const params = useParams();
+  // useParams() can return string | string[] — normalise to string.
+  // On first hydration render it may also be undefined.
+  const id     = Array.isArray(params?.id) ? params.id[0] : params?.id;
+  const router = useRouter();
 
-  const paginated = useMemo(() => {
-    const start = (page - 1) * PAGE_SIZE;
-    return filtered.slice(start, start + PAGE_SIZE);
-  }, [filtered, page]);
+  const [incident, setIncident]         = useState<Incident | null>(null);
+  const [allIncidents, setAllIncidents] = useState<Incident[]>([]);
+  const [audit, setAudit]               = useState<AuditEntry[]>([]);
+  const [chatOpen, setChatOpen]         = useState(false);
+  const [loading, setLoading]           = useState(true);
+  const [copied, setCopied]             = useState(false);
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-
-  const summaryStats = useMemo(() => ({
-    open:     incidents.filter(i => i.status === "Open").length,
-    critical: incidents.filter(i => i.severity === "Critical").length,
-    resolved: incidents.filter(i => i.status === "Resolved" || i.status === "Closed").length,
-  }), [incidents]);
-
-  // FIX C-5: Use createIncident() from lib/api.ts — no raw API key in the browser.
-  async function seedDemoData() {
-    setSeeding(true);
-    for (const inc of SEED_INCIDENTS) {
-      try {
-        await createIncident(inc);
-      } catch { /* skip duplicates / network errors */ }
+  const refreshAudit = useCallback(async () => {
+    if (!id || id === "undefined") return;
+    try {
+      const entries = await fetchIncidentAudit(id);
+      setAudit(entries);
+    } catch {
+      // non-fatal
     }
-    setSeeding(false);
-    void refresh();
+  }, [id]);
+
+  useEffect(() => {
+    // Guard: id is undefined on the very first render before Next.js hydrates
+    // route params. Without this, fetch fires as GET /incidents/undefined → 422
+    // → catch redirects back → blank screen / redirect loop.
+    if (!id || id === "undefined") return;
+
+    async function load() {
+      try {
+        const [inc, auditEntries, allInc] = await Promise.all([
+          fetchIncidentById(id as string),
+          fetchIncidentAudit(id as string).catch(() => [] as AuditEntry[]),
+          fetchIncidents(),
+        ]);
+        setIncident(inc);
+        setAudit(auditEntries);
+        setAllIncidents(allInc);
+      } catch {
+        router.push("/incidents");
+      } finally {
+        setLoading(false);
+      }
+    }
+    void load();
+  }, [id, router]);
+
+  // Safety net: if the token fetch hangs (Render cold start) or id never
+  // resolves, stop showing the skeleton after 10 seconds and show the
+  // "not found" state instead of spinning forever.
+  useEffect(() => {
+    const t = setTimeout(() => setLoading(false), 10_000);
+    return () => clearTimeout(t);
+  }, []);
+
+  async function changeStatus(status: IncidentStatus) {
+    if (!incident) return;
+    const updated = await updateIncidentStatus(incident.id, status);
+    setIncident(updated);
+    await refreshAudit();
   }
 
+  function copyLink() {
+    void navigator.clipboard
+      .writeText(window.location.href)
+      .then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
+  }
+
+  if (loading) return (
+    <AppShell>
+      <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+        {[80, 300, 200, 150].map((h, i) => (
+          <div key={i} className="skeleton" style={{ height: `${h}px`, borderRadius: "16px" }} />
+        ))}
+      </div>
+    </AppShell>
+  );
+
+  if (!incident) return (
+    <AppShell>
+      <div style={{ textAlign: "center", padding: "80px 20px", color: "var(--text-tertiary)" }}>
+        <div style={{ fontSize: "48px", marginBottom: "12px" }}>🔍</div>
+        <div style={{ fontSize: "18px", fontWeight: 600, marginBottom: "8px" }}>Incident not found</div>
+        <button
+          onClick={() => router.push("/incidents")}
+          style={{ background: "none", border: "1px solid var(--border)", color: "var(--text-secondary)", borderRadius: "10px", padding: "10px 20px", cursor: "pointer", marginTop: "8px" }}
+        >
+          ← Back to Incidents
+        </button>
+      </div>
+    </AppShell>
+  );
+
+  const sColor  = severityColor(incident.severity);
+  const stColor = statusColor(incident.status);
+
   return (
-    <AppShell onRefresh={refresh}>
-      {/* Header */}
-      <div className="fade-up" style={{ marginBottom: "28px", display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: "12px" }}>
-        <div>
-          <h1 style={{ fontSize: "clamp(28px,4vw,48px)", fontWeight: 800, background: "linear-gradient(to right,#33ff88,#00c3ff)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", marginBottom: "6px" }}>Incidents</h1>
-          <p style={{ color: "var(--text-tertiary)", fontSize: "15px" }}>All AI-detected CI/CD incidents</p>
-        </div>
-        <div style={{ display: "flex", gap: "10px" }}>
-          {incidents.length === 0 && !loading && (
+    <AppShell>
+      <div className="fade-up" style={{ marginBottom: "24px" }}>
+        <button
+          onClick={() => router.back()}
+          style={{ background: "none", border: "none", color: "var(--text-tertiary)", cursor: "pointer", display: "flex", alignItems: "center", gap: "6px", fontSize: "14px", marginBottom: "16px", padding: 0 }}
+        >
+          <ArrowLeft size={15} /> Back to Incidents
+        </button>
+
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "12px" }}>
+          <div>
+            <div style={{ display: "flex", gap: "8px", marginBottom: "8px", flexWrap: "wrap", alignItems: "center" }}>
+              <span className="badge" style={{ background: `${sColor}18`, color: sColor, border: `1px solid ${sColor}44` }}>{incident.severity}</span>
+              <span className="badge" style={{ background: `${stColor}18`, color: stColor, border: `1px solid ${stColor}44` }}>{incident.status}</span>
+              <span style={{ fontSize: "13px", color: "var(--text-tertiary)" }}>#{incident.id} · {timeAgo(incident.created_at)}</span>
+            </div>
+            <h1 style={{ fontSize: "clamp(20px,3vw,32px)", fontWeight: 700, color: "var(--text-primary)" }}>{incident.title}</h1>
+          </div>
+
+          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
             <button
-              onClick={() => void seedDemoData()}
-              disabled={seeding}
+              onClick={copyLink}
               className="glow-button"
-              style={{ padding: "10px 18px", borderRadius: "12px", background: "rgba(255,179,71,0.1)", border: "1px solid #ffb347", color: "#ffb347", fontWeight: 600, cursor: seeding ? "not-allowed" : "pointer", fontSize: "14px", opacity: seeding ? 0.6 : 1 }}
+              style={{ padding: "8px 14px", borderRadius: "10px", background: "var(--input-bg)", border: "1px solid var(--border)", color: copied ? "var(--accent)" : "var(--text-secondary)", cursor: "pointer", fontSize: "13px", display: "flex", alignItems: "center", gap: "6px" }}
             >
-              {seeding ? "Loading..." : "Load Demo Data"}
+              <Link2 size={14} /> {copied ? "Copied!" : "Share link"}
             </button>
-          )}
-          <button
-            onClick={() => void downloadIncidentPdf(incidents, null)}
-            className="glow-button"
-            style={{ padding: "10px 18px", borderRadius: "12px", background: "linear-gradient(to right,#33ff88,#00c3ff)", border: "none", color: "black", fontWeight: 700, cursor: "pointer", fontSize: "14px", display: "flex", alignItems: "center", gap: "8px" }}
-          >
-            <FileText size={15} /> Export PDF
-          </button>
+            <select
+              value={incident.status}
+              onChange={e => void changeStatus(e.target.value as IncidentStatus)}
+              style={{ background: "var(--input-bg)", border: "1px solid var(--border)", color: "var(--text-primary)", borderRadius: "10px", padding: "8px 12px", fontSize: "13px", cursor: "pointer", outline: "none" }}
+            >
+              {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+            <button
+              onClick={() => setChatOpen(o => !o)}
+              className="glow-button"
+              style={{ padding: "8px 16px", borderRadius: "10px", background: chatOpen ? "rgba(57,255,136,0.15)" : "var(--input-bg)", border: `1px solid ${chatOpen ? "var(--accent)" : "var(--border)"}`, color: chatOpen ? "var(--accent)" : "var(--text-primary)", cursor: "pointer", fontWeight: 600, fontSize: "13px", display: "flex", alignItems: "center", gap: "8px" }}
+            >
+              <MessageSquare size={14} /> AI Chat
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Summary stats */}
-      <div className="fade-up" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: "14px", marginBottom: "24px" }}>
+      {/* Stats row */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: "14px", marginBottom: "20px" }}>
         {[
-          { label: "Total",    value: incidents.length,      color: "#00c3ff" },
-          { label: "Open",     value: summaryStats.open,     color: "#ff4d4d" },
-          { label: "Critical", value: summaryStats.critical, color: "#ff7a00" },
-          { label: "Resolved", value: summaryStats.resolved, color: "#33ff88" },
+          { label: "Confidence", value: `${incident.confidence}%`,                         color: "#00c3ff" },
+          { label: "Created",    value: new Date(incident.created_at).toLocaleDateString(), color: "var(--text-secondary)" },
+          { label: "Updated",    value: new Date(incident.updated_at).toLocaleDateString(), color: "var(--text-secondary)" },
         ].map(s => (
-          <div key={s.label} className="hover-card" style={{ background: "var(--card-bg)", border: `1px solid ${s.color}33`, borderRadius: "16px", padding: "16px", backdropFilter: "blur(12px)" }}>
-            <div style={{ color: "var(--text-tertiary)", fontSize: "13px", marginBottom: "4px" }}>{s.label}</div>
-            <div style={{ color: s.color, fontSize: "30px", fontWeight: 700 }}>{s.value}</div>
+          <div key={s.label} style={{ background: "var(--card-bg)", border: "1px solid var(--border)", borderRadius: "14px", padding: "16px", backdropFilter: "blur(12px)" }}>
+            <div style={{ fontSize: "12px", color: "var(--text-tertiary)", marginBottom: "4px" }}>{s.label}</div>
+            <div style={{ fontSize: "18px", fontWeight: 700, color: s.color }}>{s.value}</div>
           </div>
         ))}
       </div>
 
-      {/* Filters */}
-      <IncidentFilters
-        severityFilter={severityFilter} setSeverityFilter={v => { setSeverityFilter(v); setPage(1); }}
-        statusFilter={statusFilter}     setStatusFilter={v => { setStatusFilter(v); setPage(1); }}
-        total={incidents.length} filtered={filtered.length}
-        onExportCSV={() => exportIncidentsCSV(filtered)}
-        onRefresh={refresh}
-      />
+      {/* Confidence bar */}
+      <div style={{ background: "var(--card-bg)", border: "1px solid var(--border)", borderRadius: "16px", padding: "20px", marginBottom: "16px", backdropFilter: "blur(12px)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: "13px", color: "var(--text-tertiary)", marginBottom: "10px" }}>
+          <span>AI Confidence</span><span>{incident.confidence}%</span>
+        </div>
+        <div className="progress-bar"><div className="progress-fill" style={{ width: `${incident.confidence}%` }} /></div>
+      </div>
 
-      {/* List */}
-      {loading ? (
-        <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-          {[1, 2, 3].map(i => <div key={i} className="skeleton" style={{ height: "90px" }} />)}
+      {/* Action buttons */}
+      <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", marginBottom: "16px" }}>
+        {incident.gitlab_issue_url && (
+          <a
+            href={incident.gitlab_issue_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ display: "inline-flex", alignItems: "center", gap: "8px", padding: "12px 20px", borderRadius: "12px", background: "linear-gradient(to right,#e24329,#fc6d26)", color: "white", fontWeight: 700, fontSize: "14px", textDecoration: "none", boxShadow: "0 0 20px #fc6d2633" }}
+          >
+            🦊 View GitLab Issue →
+          </a>
+        )}
+        {incident.autofix_mr_url ? (
+          <a
+            href={incident.autofix_mr_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ display: "inline-flex", alignItems: "center", gap: "8px", padding: "12px 20px", borderRadius: "12px", background: "linear-gradient(to right,#1E8E3E,#34A853)", color: "white", fontWeight: 700, fontSize: "14px", textDecoration: "none", boxShadow: "0 0 20px #1E8E3E33" }}
+          >
+            🤖 View Auto-Fix MR →
+          </a>
+        ) : incident.pipeline_id ? (
+          <AutoFixButton
+            incidentId={incident.id}
+            onFixed={(url) => setIncident(i => i ? { ...i, autofix_mr_url: url } : i)}
+          />
+        ) : null}
+      </div>
+
+      {/* Description + Remediation */}
+      {[{ label: "Description", value: incident.description }, { label: "Remediation", value: incident.remediation }].map(s => (
+        <div key={s.label} style={{ background: "var(--card-bg)", border: "1px solid var(--border)", borderRadius: "16px", padding: "20px", marginBottom: "16px", backdropFilter: "blur(12px)" }}>
+          <div style={{ fontSize: "13px", color: "var(--text-tertiary)", marginBottom: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>{s.label}</div>
+          <div style={{ fontSize: "14px", color: "var(--text-secondary)", lineHeight: 1.7, whiteSpace: "pre-line" }}>{s.value}</div>
         </div>
-      ) : error ? (
-        <div style={{ color: "#ff4d4d", fontFamily: "monospace", padding: "20px" }}>⚠ {error}</div>
-      ) : filtered.length === 0 ? (
-        <div style={{ textAlign: "center", padding: "60px 20px", color: "var(--text-tertiary)" }}>
-          <div style={{ fontSize: "48px", marginBottom: "12px" }}>🎉</div>
-          <div style={{ fontSize: "18px", fontWeight: 600, marginBottom: "6px" }}>No incidents found</div>
-          <div style={{ fontSize: "14px" }}>{incidents.length > 0 ? "Try changing your filters" : "Upload a log file to detect your first incident"}</div>
+      ))}
+
+      {/* Similar + Audit */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: "16px" }}>
+        <div style={{ background: "var(--card-bg)", border: "1px solid var(--border)", borderRadius: "16px", padding: "20px", backdropFilter: "blur(12px)" }}>
+          <div style={{ fontSize: "15px", fontWeight: 700, marginBottom: "16px" }}>Similar Incidents</div>
+          <SimilarIncidents incident={incident} allIncidents={allIncidents} />
         </div>
-      ) : (
-        <>
-          <div style={{ display: "flex", flexDirection: "column", gap: "12px", marginBottom: "20px" }}>
-            {paginated.map(incident => (
-              <IncidentCard key={incident.id} incident={incident} onStatusChange={updateStatus} onDelete={remove} />
-            ))}
+
+        <div style={{ background: "var(--card-bg)", border: "1px solid var(--border)", borderRadius: "16px", padding: "20px", backdropFilter: "blur(12px)" }}>
+          <div style={{ fontSize: "15px", fontWeight: 700, marginBottom: "16px", display: "flex", alignItems: "center", gap: "8px" }}>
+            <Clock size={15} color="var(--accent)" /> Activity Timeline
           </div>
-
-          {/* Pagination */}
-          {totalPages > 1 && (
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "12px" }}>
-              <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
-                style={{ background: "var(--input-bg)", border: "1px solid var(--border)", borderRadius: "10px", padding: "8px 14px", cursor: page === 1 ? "not-allowed" : "pointer", color: "var(--text-secondary)", display: "flex", alignItems: "center", opacity: page === 1 ? 0.4 : 1 }}>
-                <ChevronLeft size={16} />
-              </button>
-              {Array.from({ length: totalPages }, (_, i) => i + 1).map(p => (
-                <button key={p} onClick={() => setPage(p)}
-                  style={{ background: p === page ? "rgba(57,255,136,0.12)" : "var(--input-bg)", border: `1px solid ${p === page ? "var(--accent)" : "var(--border)"}`, borderRadius: "10px", padding: "8px 14px", cursor: "pointer", color: p === page ? "var(--accent)" : "var(--text-secondary)", fontWeight: p === page ? 700 : 400, minWidth: "40px" }}>
-                  {p}
-                </button>
-              ))}
-              <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
-                style={{ background: "var(--input-bg)", border: "1px solid var(--border)", borderRadius: "10px", padding: "8px 14px", cursor: page === totalPages ? "not-allowed" : "pointer", color: "var(--text-secondary)", display: "flex", alignItems: "center", opacity: page === totalPages ? 0.4 : 1 }}>
-                <ChevronRight size={16} />
-              </button>
+          {audit.length === 0 ? (
+            <div style={{ color: "var(--text-tertiary)", fontSize: "13px" }}>No activity yet.</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column" }}>
+              {audit.map((entry, i) => {
+                const color = ACTION_COLORS[entry.action] ?? "#888";
+                return (
+                  <div key={entry.id} style={{ display: "flex", gap: "12px", alignItems: "flex-start", paddingBottom: "14px", position: "relative" }}>
+                    {i < audit.length - 1 && <div style={{ position: "absolute", left: "7px", top: "18px", width: "2px", height: "calc(100% - 4px)", background: "var(--border)" }} />}
+                    <div style={{ width: "16px", height: "16px", borderRadius: "50%", background: color, flexShrink: 0, marginTop: "2px", zIndex: 1 }} />
+                    <div>
+                      <div style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-primary)", textTransform: "capitalize" }}>{entry.action.replace(/_/g, " ")}</div>
+                      {entry.detail && <div style={{ fontSize: "12px", color: "var(--text-tertiary)", marginTop: "2px" }}>{entry.detail}</div>}
+                      <div style={{ fontSize: "11px", color: "var(--text-tertiary)", marginTop: "3px" }}>{timeAgo(entry.created_at)} · {entry.actor}</div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
-        </>
-      )}
+        </div>
+      </div>
+
+      {chatOpen && <ChatPanel incidentId={incident.id} incidentTitle={incident.title} onClose={() => setChatOpen(false)} />}
     </AppShell>
   );
 }
