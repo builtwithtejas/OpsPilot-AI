@@ -1,8 +1,4 @@
 // frontend/lib/api.ts
-// C-5 FIX: Master API_KEY never sent to browser.
-// Browser calls /api/token (Next.js Route Handler, server-side) to get a short-lived JWT.
-// All API calls use that JWT via the request() wrapper.
-// NEW: autofix endpoint exported here so components never call fetch() directly.
 
 import type {
   AgentRun, AnalyzeResult, AnalyticsData, GitLabJob, GitLabPipeline,
@@ -43,6 +39,9 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error((err as { detail: string }).detail ?? "Request failed");
   }
+  // FIX: 204 No Content (DELETE responses) has an empty body.
+  // Calling res.json() on an empty body throws a SyntaxError.
+  if (res.status === 204) return undefined as unknown as T;
   return res.json() as Promise<T>;
 }
 
@@ -64,6 +63,7 @@ export const fetchIncidentAudit = (id: number | string) =>
 export const updateIncidentStatus = (id: number, status: string) =>
   request<Incident>(`/incidents/${id}`, { method: "PATCH", body: JSON.stringify({ status }) });
 
+// FIX: returns void — 204 is now handled in request() above, no JSON parse attempt.
 export const deleteIncident = (id: number) =>
   request<void>(`/incidents/${id}`, { method: "DELETE" });
 
@@ -71,7 +71,6 @@ export const createIncident = (payload: Record<string, unknown>) =>
   request<Incident>("/incidents/", { method: "POST", body: JSON.stringify(payload) });
 
 // ── Auto-fix ─────────────────────────────────────────────────────
-// Calls POST /incidents/{id}/autofix — wired up in the backend incidents route.
 export const triggerAutoFix = (incidentId: number) =>
   request<{ mr_url: string }>(`/incidents/${incidentId}/autofix`, { method: "POST" });
 
@@ -126,12 +125,11 @@ export const registerProject = (payload: { gitlab_project_id: string; name: stri
 export const toggleProject = (id: number) =>
   request<{ id: number; active: boolean }>(`/projects/${id}/toggle`, { method: "PATCH" });
 
+// FIX: returns void — 204 No Content handled in request().
 export const removeProject = (id: number) =>
   request<void>(`/projects/${id}`, { method: "DELETE" });
 
 // ── Chat streaming ────────────────────────────────────────────────
-// Returns the raw Response so the caller can read the stream.
-// FIX: uses getToken() instead of NEXT_PUBLIC_API_KEY.
 export const chatStream = async (
   incidentId: number,
   messages: { role: string; content: string }[]

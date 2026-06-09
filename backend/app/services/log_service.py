@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import mimetypes
-import os
 from datetime import datetime
 from pathlib import Path
 
@@ -11,12 +10,18 @@ from app.core.config import settings
 from app.utils.logger import logger
 
 UPLOAD_DIR = Path("uploads")
-UPLOAD_DIR.mkdir(exist_ok=True)
-
 MAX_BYTES = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
+
+# FIX: Removed UPLOAD_DIR.mkdir(exist_ok=True) at module import time.
+# Calling mkdir() on import creates an "uploads/" directory in whatever the
+# current working directory is when pytest collects tests — cluttering the
+# project root. Directory is now created lazily inside save_log_file().
 
 
 async def save_log_file(file: UploadFile) -> Path:
+    # FIX: Create directory on first actual use, not at import time.
+    UPLOAD_DIR.mkdir(exist_ok=True)
+
     _validate_upload(file)
 
     contents = await file.read()
@@ -27,7 +32,6 @@ async def save_log_file(file: UploadFile) -> Path:
             detail=f"File exceeds maximum size of {settings.MAX_UPLOAD_SIZE_MB} MB.",
         )
 
-    # Sanitize filename — strip path components, keep only safe chars
     safe_name = Path(file.filename or "upload.log").name
     safe_name = "".join(c for c in safe_name if c.isalnum() or c in "._-")[:100]
 
@@ -50,6 +54,15 @@ def read_log_file(filepath: Path) -> str:
         )
 
 
+def delete_log_file(filepath: Path) -> None:
+    """Delete uploaded log file after processing to prevent unbounded disk growth."""
+    try:
+        filepath.unlink(missing_ok=True)
+        logger.info("Deleted log file: %s", filepath)
+    except OSError as exc:
+        logger.warning("Failed to delete log file %s: %s", filepath, exc)
+
+
 def _validate_upload(file: UploadFile) -> None:
     if not file.filename:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Filename is required.")
@@ -69,12 +82,3 @@ def _validate_upload(file: UploadFile) -> None:
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
             detail=f"Content type '{content_type}' not allowed.",
         )
-
-
-def delete_log_file(filepath: Path) -> None:
-    """H-4 FIX: Delete uploaded log file after processing to prevent unbounded disk growth."""
-    try:
-        filepath.unlink(missing_ok=True)
-        logger.info("Deleted log file: %s", filepath)
-    except OSError as exc:
-        logger.warning("Failed to delete log file %s: %s", filepath, exc)

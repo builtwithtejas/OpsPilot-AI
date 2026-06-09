@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from urllib.parse import quote
 
 import httpx
@@ -16,12 +17,6 @@ def _base() -> str:
 
 
 def _encode_project(project_id: str | int) -> str:
-    """
-    GitLab API requires namespace/project to be URL-encoded (%2F not /).
-    Numeric IDs pass through unchanged.
-    e.g. "opspilot-ai-hackathon/opspilot-demo" → "opspilot-ai-hackathon%2Fopspilot-demo"
-         82734152 → "82734152"
-    """
     return quote(str(project_id), safe="")
 
 
@@ -31,7 +26,6 @@ async def create_gitlab_issue(
     description: str,
     labels: list[str] | None = None,
 ) -> dict:
-    """Create a GitLab issue for an incident."""
     pid = _encode_project(project_id)
     payload = {
         "title": title,
@@ -51,7 +45,6 @@ async def create_gitlab_issue(
 
 
 async def get_failed_pipelines(project_id: str | int, limit: int = 5) -> list[dict]:
-    """Fetch recent failed CI/CD pipelines from GitLab."""
     pid = _encode_project(project_id)
     async with httpx.AsyncClient(timeout=10) as client:
         resp = await client.get(
@@ -75,7 +68,6 @@ async def get_failed_pipelines(project_id: str | int, limit: int = 5) -> list[di
 
 
 async def get_pipeline_jobs(project_id: str | int, pipeline_id: int) -> list[dict]:
-    """Get jobs for a specific pipeline to identify which step failed."""
     pid = _encode_project(project_id)
     async with httpx.AsyncClient(timeout=10) as client:
         resp = await client.get(
@@ -99,11 +91,7 @@ async def get_pipeline_jobs(project_id: str | int, pipeline_id: int) -> list[dic
         ]
 
 
-async def get_job_trace(
-    project_id: str | int,
-    job_id: int,
-) -> str:
-    """Fetch raw GitLab job logs."""
+async def get_job_trace(project_id: str | int, job_id: int) -> str:
     pid = _encode_project(project_id)
     async with httpx.AsyncClient(timeout=20) as client:
         resp = await client.get(
@@ -119,7 +107,6 @@ async def post_pipeline_comment(
     pipeline_id: int,
     comment: str,
 ) -> dict:
-    """Post a comment on the merge request associated with this pipeline."""
     pid = _encode_project(project_id)
     async with httpx.AsyncClient(timeout=10) as client:
         mr_resp = await client.get(
@@ -141,7 +128,6 @@ async def post_pipeline_comment(
 
 
 async def trigger_duo_agent(project_id: str, incident_summary: str, issue_url: str) -> dict:
-    """Notify the GitLab Duo Agent Platform about a new incident."""
     if not settings.GITLAB_MCP_URL or not settings.GITLAB_AGENT_ID:
         logger.warning("GitLab Duo agent not configured — skipping")
         return {"skipped": True}
@@ -169,12 +155,43 @@ async def trigger_duo_agent(project_id: str, incident_summary: str, issue_url: s
     except Exception as exc:
         logger.warning("Duo agent notification failed (non-fatal): %s", exc)
         return {"error": str(exc)}
+
+
+async def get_default_branch(project_id: str | int) -> str:
+    """Fetch the project's default branch name instead of assuming 'main'."""
+    pid = _encode_project(project_id)
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.get(
+            f"{_base()}/projects/{pid}",
+            headers=_headers(),
+        )
+        resp.raise_for_status()
+        return resp.json().get("default_branch", "main")
+
+
+async def get_latest_commit_sha(
+    project_id: str | int,
+    ref: str = "main",
+) -> str:
+    pid = _encode_project(project_id)
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.get(
+            f"{_base()}/projects/{pid}/repository/commits",
+            params={"ref_name": ref, "per_page": 1},
+            headers=_headers(),
+        )
+        resp.raise_for_status()
+        commits = resp.json()
+        if not commits:
+            raise ValueError(f"No commits found on branch {ref}")
+        return commits[0]["id"]
+
+
 async def create_fix_branch(
     project_id: str | int,
     incident_id: int,
     base_sha: str,
 ) -> str:
-    """Create a new branch for the auto-fix MR."""
     pid = _encode_project(project_id)
     branch_name = f"opspilot/fix-incident-{incident_id}"
     async with httpx.AsyncClient(timeout=10) as client:
@@ -191,6 +208,27 @@ async def create_fix_branch(
         return branch_name
 
 
+async def get_file_content(
+    project_id: str | int,
+    file_path: str,
+    ref: str = "main",
+) -> dict:
+    pid = _encode_project(project_id)
+    encoded_path = quote(file_path, safe="")
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.get(
+            f"{_base()}/projects/{pid}/repository/files/{encoded_path}",
+            params={"ref": ref},
+            headers=_headers(),
+        )
+        if resp.status_code == 404:
+            return {}
+        resp.raise_for_status()
+        data = resp.json()
+        content = base64.b64decode(data["content"]).decode("utf-8", errors="replace")
+        return {"content": content, "sha": data["blob_id"]}
+
+
 async def commit_fix(
     project_id: str | int,
     branch_name: str,
@@ -198,15 +236,27 @@ async def commit_fix(
     filename: str,
     content: str,
     commit_message: str,
+    default_branch: str = "main",
 ) -> dict:
-    """Commit the Gemini-generated fix to the branch."""
+    """
+    Commit the Gemini-generated fix to the branch.
+
+    FIX: Previously always used action="update" which fails with HTTP 400 if the
+    file does not yet exist in the repository. We now check whether the file exists
+    on the default branch first and use "create" or "update" accordingly.
+    """
     pid = _encode_project(project_id)
+
+    # Determine whether to create or update the file
+    existing = await get_file_content(project_id, filename, ref=default_branch)
+    action = "update" if existing else "create"
+
     payload = {
         "branch": branch_name,
         "commit_message": commit_message,
         "actions": [
             {
-                "action": "update",
+                "action": action,
                 "file_path": filename,
                 "content": content,
             }
@@ -220,7 +270,7 @@ async def commit_fix(
         )
         resp.raise_for_status()
         data = resp.json()
-        logger.info("Committed fix to branch %s: %s", branch_name, commit_message)
+        logger.info("Committed fix (%s) to branch %s: %s", action, branch_name, commit_message)
         return {"sha": data["id"], "branch": branch_name}
 
 
@@ -232,7 +282,6 @@ async def create_fix_mr(
     description: str,
     target_branch: str = "main",
 ) -> dict:
-    """Open a Merge Request for the auto-fix branch."""
     pid = _encode_project(project_id)
     payload = {
         "source_branch": branch_name,
@@ -259,47 +308,6 @@ async def create_fix_mr(
         }
 
 
-async def get_file_content(
-    project_id: str | int,
-    file_path: str,
-    ref: str = "main",
-) -> dict:
-    """Get file content from GitLab repository."""
-    pid = _encode_project(project_id)
-    encoded_path = quote(file_path, safe="")
-    async with httpx.AsyncClient(timeout=10) as client:
-        resp = await client.get(
-            f"{_base()}/projects/{pid}/repository/files/{encoded_path}",
-            params={"ref": ref},
-            headers=_headers(),
-        )
-        if resp.status_code == 404:
-            return {}
-        resp.raise_for_status()
-        import base64
-        data = resp.json()
-        content = base64.b64decode(data["content"]).decode("utf-8", errors="replace")
-        return {"content": content, "sha": data["blob_id"]}
-
-
-async def get_latest_commit_sha(
-    project_id: str | int,
-    ref: str = "main",
-) -> str:
-    """Get the latest commit SHA for a branch."""
-    pid = _encode_project(project_id)
-    async with httpx.AsyncClient(timeout=10) as client:
-        resp = await client.get(
-            f"{_base()}/projects/{pid}/repository/commits",
-            params={"ref_name": ref, "per_page": 1},
-            headers=_headers(),
-        )
-        resp.raise_for_status()
-        commits = resp.json()
-        if not commits:
-            raise ValueError(f"No commits found on branch {ref}")
-        return commits[0]["id"]
-    
 async def create_fix_mr_workflow(
     project_id: str | int,
     filename: str,
@@ -308,7 +316,15 @@ async def create_fix_mr_workflow(
     description: str,
     incident_id: int,
 ) -> str:
-    base_sha = await get_latest_commit_sha(project_id)
+    """
+    Full workflow: detect default branch → create fix branch → commit → open MR.
+
+    FIX: Uses the project's actual default_branch instead of hardcoding "main".
+    Passes default_branch to commit_fix so it can check file existence on the
+    correct branch before deciding create vs update action.
+    """
+    default_branch = await get_default_branch(project_id)
+    base_sha = await get_latest_commit_sha(project_id, ref=default_branch)
 
     branch_name = await create_fix_branch(
         project_id,
@@ -323,6 +339,7 @@ async def create_fix_mr_workflow(
         filename,
         fixed_content,
         commit_message,
+        default_branch=default_branch,
     )
 
     mr = await create_fix_mr(
@@ -331,6 +348,7 @@ async def create_fix_mr_workflow(
         incident_id=incident_id,
         title=f"OpsPilot Auto Fix #{incident_id}",
         description=description,
+        target_branch=default_branch,
     )
 
     return mr["url"]

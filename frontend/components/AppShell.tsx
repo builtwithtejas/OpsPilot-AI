@@ -1,12 +1,14 @@
 "use client";
 
-// H-2 FIX: AppShell previously called useIncidents() unconditionally, creating a
-// second independent polling loop when page.tsx (which wraps AppShell) also calls
-// useIncidents(). This caused double API calls on every poll interval.
+// FIX: useIncidents() was called unconditionally (React hooks cannot be called
+// conditionally), which meant AppShell always ran its own polling loop even when
+// the parent had already passed incidents as a prop — causing two independent
+// fetch loops and double API traffic.
 //
-// Fix: Accept optional `incidents` prop. If the parent already has them (page.tsx),
-// pass them in and AppShell skips its own useIncidents() call.
-// If not provided (other pages that don't use incidents), the internal hook runs as before.
+// Correct fix: split into two components.
+// AppShellInner — used when incidents ARE provided by the parent (no hook).
+// AppShellWithHook — used when incidents are NOT provided (runs useIncidents).
+// AppShell picks the right one based on whether the prop is present.
 
 import { useMemo, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -24,21 +26,25 @@ interface Props {
   children: React.ReactNode;
   showParticles?: boolean;
   onRefresh?: () => void;
-  /** H-2 FIX: Pass incidents from the parent to avoid a second polling loop. */
   incidents?: Incident[];
 }
 
-export default function AppShell({ children, showParticles = true, onRefresh, incidents: incidentsProp }: Props) {
-  // H-2 FIX: Only run useIncidents() if the parent didn't supply incidents already.
-  // This prevents two simultaneous polling loops when the parent also calls useIncidents().
-  const ownHook = useIncidents();
-  const incidents = incidentsProp ?? ownHook.incidents;
-
+// Shared shell chrome — accepts incidents directly, runs no hooks that fetch data.
+function AppShellInner({
+  children,
+  showParticles = true,
+  onRefresh,
+  incidents,
+}: {
+  children: React.ReactNode;
+  showParticles?: boolean;
+  onRefresh?: () => void;
+  incidents: Incident[];
+}) {
   const { notifications, unreadCount, open, setOpen, markAllRead } = useNotifications(incidents);
   const { query, setQuery } = useSearch(incidents);
   const { toasts, add: addToast, remove: removeToast } = useToast();
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const router = useRouter();
 
   const particles = useMemo(
     () => Array.from({ length: 40 }, (_, i) => ({
@@ -96,5 +102,38 @@ export default function AppShell({ children, showParticles = true, onRefresh, in
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} onRefresh={onRefresh} />
       <Toast toasts={toasts} remove={removeToast} />
     </div>
+  );
+}
+
+// Variant that owns its own useIncidents() polling loop.
+// Only used when the parent does NOT supply incidents.
+function AppShellWithHook({
+  children,
+  showParticles,
+  onRefresh,
+}: Omit<Props, "incidents">) {
+  const { incidents } = useIncidents();
+  return (
+    <AppShellInner incidents={incidents} showParticles={showParticles} onRefresh={onRefresh}>
+      {children}
+    </AppShellInner>
+  );
+}
+
+// Public component — picks the right inner component to avoid the conditional-hook problem.
+export default function AppShell({ children, showParticles = true, onRefresh, incidents }: Props) {
+  if (incidents !== undefined) {
+    // Parent has already fetched incidents — pass them straight through, no extra hook.
+    return (
+      <AppShellInner incidents={incidents} showParticles={showParticles} onRefresh={onRefresh}>
+        {children}
+      </AppShellInner>
+    );
+  }
+  // No prop — run our own hook.
+  return (
+    <AppShellWithHook showParticles={showParticles} onRefresh={onRefresh}>
+      {children}
+    </AppShellWithHook>
   );
 }

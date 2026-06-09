@@ -1,7 +1,3 @@
-# backend/tests/conftest.py
-# FIX: Fully async conftest — uses AsyncSession to match the app's get_db dependency.
-# pytest-asyncio handles the event loop automatically with asyncio_mode = auto.
-
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
@@ -11,7 +7,6 @@ from app.database.database import Base
 from app.database.dependencies import get_db
 from app.main import app
 
-# Isolated async SQLite for every test session
 TEST_DATABASE_URL = "sqlite+aiosqlite:///./test_opspilot.db"
 
 test_engine = create_async_engine(
@@ -28,27 +23,27 @@ TestingSessionLocal = async_sessionmaker(
 )
 
 
+async def _override_get_db():
+    async with TestingSessionLocal() as session:
+        yield session
+
+
 @pytest_asyncio.fixture(scope="session", autouse=True)
 async def setup_test_db():
     """Create all tables once for the test session, drop them on teardown."""
     async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    yield
-    async with test_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-    await test_engine.dispose()
-
-
-@pytest_asyncio.fixture(autouse=True)
-async def override_db():
-    """Override get_db with the test async session for every test."""
-    async def _override_get_db():
-        async with TestingSessionLocal() as session:
-            yield session
-
+    # FIX: Set the override once at session scope so it persists for the whole
+    # test run. Previously override_db was function-scoped and called
+    # dependency_overrides.clear() after each test — this wiped the module-level
+    # override set by test_health.py, causing subsequent tests in that file to
+    # hit the production Neon DB instead of the SQLite test DB.
     app.dependency_overrides[get_db] = _override_get_db
     yield
     app.dependency_overrides.clear()
+    async with test_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+    await test_engine.dispose()
 
 
 @pytest_asyncio.fixture

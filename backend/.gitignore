@@ -11,11 +11,17 @@ dist/
 build/
 .pytest_cache/
 .mypy_cache/
-opspilot.db
-uploads/
-*.log
 
-# M FIX: SQLite test DB should never be committed — contains test data, grows unbounded
+# Database files — never commit
+opspilot.db
 test_opspilot.db
 *.db
-*.sqlite3
+
+# Uploads directory — user-generated content
+uploads/
+
+# Logs
+*.log
+
+# macOS
+.DS_Store

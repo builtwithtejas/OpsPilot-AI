@@ -1,9 +1,3 @@
-# backend/app/api/routes/incidents.py
-#
-# FIX R-3: generate_auto_fix() is a synchronous Gemini call.
-# Calling it directly inside an async route blocks the event loop.
-# Wrapped with asyncio.to_thread() so it runs in a thread pool.
-
 import asyncio
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status, BackgroundTasks
@@ -94,17 +88,6 @@ async def remove_incident(incident_id: int, db: AsyncSession = Depends(get_db)):
     status_code=status.HTTP_200_OK,
 )
 async def autofix_incident(incident_id: int, db: AsyncSession = Depends(get_db)):
-    """
-    Generates a Gemini-powered fix for the failing CI file and opens a GitLab MR.
-
-    Returns:
-        { "mr_url": "https://gitlab.com/..." }
-
-    Raises:
-        404 if incident not found
-        422 if the incident has no associated pipeline (nothing to fix)
-        502 if AI generation or GitLab MR creation fails
-    """
     inc = await get_incident_by_id(db, incident_id)
     if not inc:
         raise HTTPException(status_code=404, detail="Incident not found.")
@@ -115,15 +98,12 @@ async def autofix_incident(incident_id: int, db: AsyncSession = Depends(get_db))
             detail="This incident has no associated pipeline. Auto-fix requires a pipeline_id.",
         )
 
-    # FIX R-3: generate_auto_fix() calls the Gemini SDK synchronously.
-    # Running it directly in an async route blocks the entire event loop.
-    # asyncio.to_thread() offloads it to a thread pool so other requests
-    # are not stalled during the Gemini API call (which can take 2–5 seconds).
+    # FIX R-3: generate_auto_fix() is synchronous — offload to thread pool.
     fix = await asyncio.to_thread(
         generate_auto_fix,
         inc.description or "",
         inc.remediation or "",
-        "",  # current_file_content — GitLab service fetches the real file
+        "",
     )
 
     if not fix or not fix.get("fixed_content"):
@@ -132,15 +112,16 @@ async def autofix_incident(incident_id: int, db: AsyncSession = Depends(get_db))
             detail="AI fix generation failed or returned empty content. Try again.",
         )
 
+    # FIX: corrected indentation — the entire try/except block was malformed.
     try:
-      mr_url = await create_fix_mr_workflow(
-    project_id=str(inc.pipeline_id),
-    filename=fix["filename"],
-    fixed_content=fix["fixed_content"],
-    commit_message=fix["commit_message"],
-    description=fix["fix_description"],
-    incident_id=incident_id,
-)
+        mr_url = await create_fix_mr_workflow(
+            project_id=str(inc.pipeline_id),
+            filename=fix["filename"],
+            fixed_content=fix["fixed_content"],
+            commit_message=fix["commit_message"],
+            description=fix["fix_description"],
+            incident_id=incident_id,
+        )
     except Exception as exc:
         logger.warning("GitLab MR creation failed for incident #%d: %s", incident_id, exc)
         raise HTTPException(
