@@ -315,14 +315,21 @@ def _forecast_with_gemini(incident_summary: str) -> list[dict]:
 
     model = _get_model()
 
-    prompt = f"{_FORECAST_PROMPT}\n\nHistorical incidents:\n\n{incident_summary[:3000]}"
+    prompt = (
+        f"{_FORECAST_PROMPT}\n\n"
+        "Return EXACTLY 3 forecast objects.\n"
+        "Return a COMPLETE valid JSON array.\n"
+        "Do not stop early.\n"
+        "Do not truncate output.\n\n"
+        f"Historical incidents:\n\n{incident_summary[:3000]}"
+    )
 
     response = model.generate_content(
         prompt,
         generation_config=genai.GenerationConfig(
-            temperature=0.2,
+            temperature=0,
             response_mime_type="application/json",
-            max_output_tokens=1500,
+            max_output_tokens=3000,
         ),
     )
 
@@ -342,20 +349,27 @@ def _forecast_with_gemini(incident_summary: str) -> list[dict]:
     try:
         parsed = json.loads(raw)
         logger.info("FORECAST JSON PARSED SUCCESSFULLY")
+
     except Exception as exc:
         logger.warning("JSON PARSE FAILED: %s", exc)
 
-        match = re.search(r"\[[\s\S]*\]", raw)
+        match = re.search(r"\[[\s\S]*", raw)
 
-        if match:
-            try:
-                parsed = json.loads(match.group(0))
-                logger.info("FORECAST REGEX PARSE SUCCESS")
-            except Exception as exc2:
-                logger.error("REGEX PARSE FAILED: %s", exc2)
-                return []
-        else:
+        if not match:
             logger.error("NO JSON ARRAY FOUND IN RESPONSE")
+            return []
+
+        recovered = match.group(0)
+
+        if not recovered.rstrip().endswith("]"):
+            recovered += "]"
+
+        try:
+            parsed = json.loads(recovered)
+            logger.info("FORECAST RECOVERY SUCCESS")
+
+        except Exception as exc2:
+            logger.error("FORECAST RECOVERY FAILED: %s", exc2)
             return []
 
     logger.info("FORECAST PARSED OBJECT:\n%s", parsed)
