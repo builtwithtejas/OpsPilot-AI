@@ -41,34 +41,39 @@ export default function IncidentDetailPage() {
   const [loading, setLoading]         = useState(true);
   const [copied, setCopied]           = useState(false);
 
-  const refreshAudit = useCallback(async () => {
-    try {
-      const entries = await fetchIncidentAudit(id);
-      setAudit(entries);
-    } catch {
-      // non-fatal — audit log is supplementary
-    }
-  }, [id]);
+const refreshAudit = useCallback(async () => {
+  if (!id || id === "undefined") return;   // add this line
+  try {
+    const entries = await fetchIncidentAudit(id);
+    setAudit(entries);
+  } catch {
+    // non-fatal
+  }
+}, [id]);
 
-  useEffect(() => {
-    async function load() {
-      try {
-        const [inc, auditEntries, allInc] = await Promise.all([
-          fetchIncidentById(id),
-          fetchIncidentAudit(id).catch(() => [] as AuditEntry[]),
-          fetchIncidents(),
-        ]);
-        setIncident(inc);
-        setAudit(auditEntries);
-        setAllIncidents(allInc);
-      } catch {
-        router.push("/incidents");
-      } finally {
-        setLoading(false);
-      }
+useEffect(() => {
+  // Guard: id is undefined on first render before Next.js hydrates the route params.
+  // Without this, fetchIncidentById("undefined") fires → backend 422 → redirect loop.
+  if (!id || id === "undefined") return;
+
+  async function load() {
+    try {
+      const [inc, auditEntries, allInc] = await Promise.all([
+        fetchIncidentById(id),
+        fetchIncidentAudit(id).catch(() => [] as AuditEntry[]),
+        fetchIncidents(),
+      ]);
+      setIncident(inc);
+      setAudit(auditEntries);
+      setAllIncidents(allInc);
+    } catch {
+      router.push("/incidents");
+    } finally {
+      setLoading(false);
     }
-    void load();
-  }, [id, router]);
+  }
+  void load();
+}, [id, router]);
 
   async function changeStatus(status: IncidentStatus) {
     if (!incident) return;
