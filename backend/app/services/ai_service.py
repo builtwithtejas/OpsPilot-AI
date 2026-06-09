@@ -306,10 +306,17 @@ def _analyse_with_gemini(logs: str, memory_context: str = "") -> dict:
 
 
 def _forecast_with_gemini(incident_summary: str) -> list[dict]:
+    logger.info("========== FORECAST START ==========")
+    logger.info("FORECAST INPUT:\n%s", incident_summary)
+
     if not incident_summary or incident_summary == "No historical incidents available.":
+        logger.warning("No incident history available")
         return []
+
     model = _get_model()
+
     prompt = f"{_FORECAST_PROMPT}\n\nHistorical incidents:\n\n{incident_summary[:3000]}"
+
     response = model.generate_content(
         prompt,
         generation_config=genai.GenerationConfig(
@@ -318,32 +325,60 @@ def _forecast_with_gemini(incident_summary: str) -> list[dict]:
             max_output_tokens=1500,
         ),
     )
+
     raw = getattr(response, "text", "") or ""
+
+    logger.info("FORECAST RAW RESPONSE:\n%s", raw)
+
     if not raw:
+        logger.warning("Gemini returned empty forecast response")
         return []
+
     raw = raw.strip()
+
     raw = re.sub(r"^```(?:json)?\s*", "", raw)
     raw = re.sub(r"\s*```$", "", raw)
+
     try:
         parsed = json.loads(raw)
-    except Exception:
+        logger.info("FORECAST JSON PARSED SUCCESSFULLY")
+    except Exception as exc:
+        logger.warning("JSON PARSE FAILED: %s", exc)
+
         match = re.search(r"\[[\s\S]*\]", raw)
-        parsed = json.loads(match.group(0)) if match else []
+
+        if match:
+            try:
+                parsed = json.loads(match.group(0))
+                logger.info("FORECAST REGEX PARSE SUCCESS")
+            except Exception as exc2:
+                logger.error("REGEX PARSE FAILED: %s", exc2)
+                return []
+        else:
+            logger.error("NO JSON ARRAY FOUND IN RESPONSE")
+            return []
+
+    logger.info("FORECAST PARSED OBJECT:\n%s", parsed)
+
     if not isinstance(parsed, list):
         parsed = [parsed]
-    return [
+
+    result = [
         {
-            "project":            str(item.get("project", "unknown")),
-            "risk_type":          str(item.get("risk_type", "Unknown")),
-            "description":        str(item.get("description", "")),
-            "confidence":         _clamp(item.get("confidence", 50)),
-            "timeframe":          str(item.get("timeframe", "Next 7 days")),
+            "project": str(item.get("project", "unknown")),
+            "risk_type": str(item.get("risk_type", "Unknown")),
+            "description": str(item.get("description", "")),
+            "confidence": _clamp(item.get("confidence", 50)),
+            "timeframe": str(item.get("timeframe", "Next 7 days")),
             "recommended_action": str(item.get("recommended_action", "")),
         }
         for item in parsed[:3]
     ]
 
+    logger.info("FINAL FORECAST RESULT:\n%s", result)
+    logger.info("========== FORECAST END ==========")
 
+    return result
 def _fix_with_gemini(root_cause: str, remediation: str, current_file_content: str) -> dict:
     model = _get_model()
     prompt = (
