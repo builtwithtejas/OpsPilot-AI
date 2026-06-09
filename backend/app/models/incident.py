@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime
 from sqlalchemy import Column, Integer, String, DateTime
 from app.database.database import Base
 
@@ -21,10 +21,15 @@ class Incident(Base):
     # add after gitlab_issue_url:
     autofix_mr_url   = Column(String, nullable=True)  # link to auto-fix MR
 
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
-    updated_at = Column(
-        DateTime,
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc),
-        nullable=False,
-    )
+    created_at = Column(
+    DateTime,
+    default=datetime.utcnow,
+    nullable=False,
+)
+
+updated_at = Column(
+    DateTime,
+    default=datetime.utcnow,
+    onupdate=datetime.utcnow,
+    nullable=False,
+)
