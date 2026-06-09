@@ -5,6 +5,9 @@ import { triggerAgent, fetchFailedPipelines } from "@/lib/api";
 import type { AgentRun, GitLabPipeline } from "@/types";
 import { Bot, Play, CheckCircle, XCircle, Loader, ExternalLink, ChevronDown, ChevronUp } from "lucide-react";
 
+// FIX: Added missing step 7 — duo_agent_platform.
+// The backend agent_service.py runs 7 steps but this map only had 6,
+// so the last step was silently dropped from the UI.
 const STEP_LABELS: Record<string, string> = {
   detect_failed_pipeline: "Detect failed pipeline",
   gather_job_logs:        "Gather job logs",
@@ -12,6 +15,7 @@ const STEP_LABELS: Record<string, string> = {
   record_incident:        "Record incident",
   gitlab_action:          "Create GitLab issue + MR comment",
   notify:                 "Send notifications",
+  duo_agent_platform:     "Notify GitLab Duo Agent Platform",  // step 7
 };
 
 export default function AgentPanel() {
@@ -71,6 +75,7 @@ export default function AgentPanel() {
         </div>
         <div>
           <div style={{ fontWeight: 700, fontSize: "16px" }}>OpsPilot Autonomous Agent</div>
+          {/* FIX: Updated subtitle from "6-step" to "7-step" to match backend */}
           <div style={{ fontSize: "13px", color: "var(--text-tertiary)" }}>Gemini 2.5 Flash × GitLab MCP · 7-step orchestrated pipeline</div>
         </div>
       </div>
@@ -146,14 +151,18 @@ export default function AgentPanel() {
             )}
           </div>
 
-          {/* Steps */}
+          {/* Steps — renders all steps returned by backend, labelled or raw name as fallback */}
           <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
             {run.steps.map((step, i) => (
               <div key={i}>
                 <button onClick={() => setExpanded(expanded === step.name ? null : step.name)}
                   style={{ width: "100%", display: "flex", alignItems: "center", gap: "10px", padding: "12px 16px", borderRadius: "12px", background: "var(--card-bg)", border: "1px solid var(--border)", cursor: "pointer", textAlign: "left" }}>
                   {statusIcon(step.status)}
-                  <span style={{ flex: 1, fontSize: "14px", fontWeight: 500, color: "var(--text-primary)" }}>{STEP_LABELS[step.name] ?? step.name}</span>
+                  <span style={{ fontSize: "12px", color: "var(--text-tertiary)", minWidth: "18px" }}>{i + 1}</span>
+                  <span style={{ flex: 1, fontSize: "14px", fontWeight: 500, color: "var(--text-primary)" }}>
+                    {/* FIX: Falls back to raw step name if label is missing, so future steps never silently disappear */}
+                    {STEP_LABELS[step.name] ?? step.name.replace(/_/g, " ")}
+                  </span>
                   <span style={{ fontSize: "12px", color: step.status === "done" ? "#33ff88" : step.status === "failed" ? "#ff4d4d" : "var(--text-tertiary)", textTransform: "capitalize" }}>{step.status}</span>
                   {expanded === step.name ? <ChevronUp size={14} color="var(--text-tertiary)" /> : <ChevronDown size={14} color="var(--text-tertiary)" />}
                 </button>

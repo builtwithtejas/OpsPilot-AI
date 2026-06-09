@@ -29,3 +29,4 @@ google-cloud-aiplatform==1.71.1
 
 alembic==1.13.3
 python-jose[cryptography]==3.3.0
+google-adk
