@@ -42,6 +42,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.allowed_origins_list,
+    allow_origin_regex=r"https://.*\.vercel\.app",  # covers all Vercel preview deploys
     allow_credentials=True,
     allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "X-API-Key", "Authorization"],
@@ -70,11 +71,3 @@ def root():
 @app.get("/favicon.ico", include_in_schema=False)
 async def favicon():
     return Response(status_code=204)
-
-
-# FIX: Removed duplicate inline /health endpoint.
-# The canonical /health is defined in app/api/routes/health.py and registered
-# via api_router. Having two handlers for the same path causes the router's
-# version (with service/version/timestamp fields) to be silently unreachable
-# because FastAPI matches the first registered route — the inline one here.
-# Deleting it means /health now returns the full response that tests assert.
