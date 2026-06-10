@@ -254,7 +254,28 @@ export default function AgentPanel() {
                     <div style={{ marginTop: "4px", padding: "12px 16px", borderRadius: "10px", background: "rgba(0,0,0,0.3)", border: "1px solid var(--border)", fontFamily: "monospace", fontSize: "12px", color: "#aaa" }}>
                       {step.error
                         ? <span style={{ color: "#ff4d4d" }}>Error: {step.error}</span>
-                        : <pre style={{ margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{JSON.stringify(step.result, null, 2)}</pre>
+                        : <pre style={{ margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+  {JSON.stringify(
+    (() => {
+      if (
+        step.name === "gemini_analysis" &&
+        step.result &&
+        typeof step.result === "object"
+      ) {
+        const cleanResult = { ...(step.result as Record<string, unknown>) };
+
+        delete cleanResult.model;
+        delete cleanResult.powered_by;
+
+        return cleanResult;
+      }
+
+      return step.result;
+    })(),
+    null,
+    2
+  )}
+</pre>
                       }
                     </div>
                   )}
