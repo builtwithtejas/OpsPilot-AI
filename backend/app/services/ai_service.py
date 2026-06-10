@@ -1,9 +1,12 @@
 # backend/app/services/ai_service.py
-# UPGRADE: Integrated Google Agent Development Kit (ADK)
-# - OpsPilot agent is now a proper Google ADK agent
-# - Uses AI Studio free API key (no billing needed)
-# - Falls back to direct Gemini if ADK unavailable
-# - All existing functionality preserved
+# DEMO MODE: Groq (llama-3.3-70b-versatile) replaces Gemini for all AI calls.
+# Groq has a generous free tier with no quota exhaustion during demos.
+# To revert: set USE_GROQ=false in .env (or remove it) — the original Gemini
+# paths are preserved below and will be used automatically.
+#
+# .env additions needed:
+#   GROQ_API_KEY=gsk_...
+#   USE_GROQ=true           # set to false to revert to Gemini
 
 from __future__ import annotations
 
@@ -11,13 +14,34 @@ import json
 import re
 from functools import lru_cache
 
-import google.generativeai as genai
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from app.core.config import settings
 from app.utils.logger import logger
 
-# ── Google ADK import ─────────────────────────────────────────────
+# ── Groq client (lazy import — only used when USE_GROQ=true) ─────
+def _get_groq_client():
+    try:
+        from groq import Groq
+        return Groq(api_key=settings.GROQ_API_KEY)
+    except ImportError:
+        raise RuntimeError("groq package not installed. Run: pip install groq")
+
+
+# ── Gemini (used when USE_GROQ=false) ────────────────────────────
+import google.generativeai as genai
+
+@lru_cache(maxsize=4)
+def _get_cached_gemini_model(api_key: str, model_name: str):
+    genai.configure(api_key=api_key)
+    logger.info("Gemini model configured: %s", model_name)
+    return genai.GenerativeModel(model_name=model_name)
+
+def _get_gemini_model():
+    return _get_cached_gemini_model(settings.GEMINI_API_KEY, settings.GEMINI_MODEL)
+
+
+# ── Google ADK (optional — used when available + Gemini mode) ────
 try:
     from google.adk.agents import Agent
     from google.adk.tools import FunctionTool
@@ -25,7 +49,7 @@ try:
     logger.info("Google ADK loaded successfully")
 except ImportError:
     ADK_AVAILABLE = False
-    logger.warning("Google ADK not installed — falling back to direct Gemini. Run: pip install google-adk")
+    logger.warning("Google ADK not installed -- falling back to direct Gemini/Groq.")
 
 
 # ── Prompts ───────────────────────────────────────────────────────
@@ -37,12 +61,8 @@ Analyze the provided CI/CD logs.
 
 Your task:
 - Identify the most probable root cause.
-- Detect build errors.
-- Detect dependency failures.
-- Detect Docker failures.
-- Detect Kubernetes failures.
-- Detect test failures.
-- Detect deployment failures.
+- Detect build errors, dependency failures, Docker failures,
+  Kubernetes failures, test failures, and deployment failures.
 - Be specific whenever possible.
 
 IMPORTANT:
@@ -61,7 +81,6 @@ Schema:
   "confidence": <integer 0-100>
 }
 """.strip()
-
 
 _FORECAST_PROMPT = """
 You are an elite DevOps AI engineer specializing in predictive incident analysis.
@@ -88,7 +107,6 @@ Schema:
 ]
 """.strip()
 
-
 _FIX_PROMPT = """
 You are an elite DevOps engineer. Based on the CI/CD failure analysis below,
 generate a specific code fix for the .gitlab-ci.yml file.
@@ -109,116 +127,6 @@ Schema:
 """.strip()
 
 
-# ── Model cache ───────────────────────────────────────────────────
-
-@lru_cache(maxsize=4)
-def _get_cached_model(api_key: str, model_name: str):
-    genai.configure(api_key=api_key)
-    logger.info("Gemini model configured: %s", model_name)
-    return genai.GenerativeModel(model_name=model_name)
-
-
-def _get_model():
-    return _get_cached_model(settings.GEMINI_API_KEY, settings.GEMINI_MODEL)
-
-
-# ── ADK Agent (cached) ────────────────────────────────────────────
-# The ADK agent is created once and reused across requests.
-# It uses your free AI Studio API key — no billing needed.
-
-@lru_cache(maxsize=1)
-def _get_adk_agent() -> "Agent | None":
-    if not ADK_AVAILABLE:
-        return None
-    try:
-        # ── ADK Tools — these are the agent's capabilities ────────
-        # Each tool maps to a real OpsPilot action.
-        # ADK uses these for structured reasoning and tool calling.
-
-        def analyse_ci_logs(logs: str, memory_context: str = "") -> dict:
-            """Analyse CI/CD pipeline logs and return structured incident data."""
-            return _analyse_with_gemini(logs, memory_context)
-
-        def predict_risk_forecast(incident_history: str) -> list:
-            """Predict future CI/CD failures from historical incident patterns."""
-            return _forecast_with_gemini(incident_history)
-
-        def generate_ci_fix(root_cause: str, remediation: str, current_yml: str) -> dict:
-            """Generate an auto-fix for the failing .gitlab-ci.yml file."""
-            return _fix_with_gemini(root_cause, remediation, current_yml)
-
-        agent = Agent(
-            model=settings.GEMINI_MODEL,           # gemini-2.5-flash
-            name="opspilot_devops_agent",
-            description=(
-                "OpsPilot AI — autonomous DevSecOps agent. "
-                "Detects GitLab CI/CD pipeline failures, analyses root causes using Gemini, "
-                "creates GitLab issues, opens auto-fix MRs, and predicts future failures."
-            ),
-            instruction=(
-                "You are OpsPilot AI, an autonomous DevSecOps agent built on Google ADK. "
-                "Your job is to: "
-                "1. Detect failed GitLab CI/CD pipelines automatically. "
-                "2. Fetch and analyse job logs using Gemini 2.5 Flash. "
-                "3. Identify root cause, severity, and confidence score. "
-                "4. Create a GitLab issue with remediation steps. "
-                "5. Open an auto-fix merge request. "
-                "6. Notify the team on Slack. "
-                "7. Predict future failures using incident history. "
-                "Always return structured JSON. Be precise and concise."
-            ),
-            tools=[
-                FunctionTool(func=analyse_ci_logs),
-                FunctionTool(func=predict_risk_forecast),
-                FunctionTool(func=generate_ci_fix),
-            ],
-        )
-
-        logger.info("Google ADK agent initialised: opspilot_devops_agent")
-        return agent
-
-    except Exception as exc:
-        logger.warning("ADK agent init failed — falling back to direct Gemini: %s", exc)
-        return None
-
-
-# ── ADK agent info (for API exposure) ────────────────────────────
-
-def get_adk_agent_info() -> dict:
-    """Return ADK agent metadata — exposed via /agent/info endpoint."""
-    agent = _get_adk_agent()
-    if agent:
-        return {
-            "framework":   "Google Agent Development Kit (ADK)",
-            "agent_name":  "opspilot_devops_agent",
-            "model":       settings.GEMINI_MODEL,
-            "adk_version": _get_adk_version(),
-            "tools": [
-                "analyse_ci_logs",
-                "predict_risk_forecast",
-                "generate_ci_fix",
-            ],
-            "status": "active",
-            "description": (
-                "OpsPilot AI autonomous DevSecOps agent powered by Google ADK. "
-                "Detects, analyses, and remediates GitLab CI/CD pipeline failures."
-            ),
-        }
-    return {
-        "framework": "Google Gemini Direct (ADK not available)",
-        "model":     settings.GEMINI_MODEL,
-        "status":    "fallback",
-    }
-
-
-def _get_adk_version() -> str:
-    try:
-        import google.adk
-        return getattr(google.adk, "__version__", "latest")
-    except Exception:
-        return "unknown"
-
-
 # ── Helpers ───────────────────────────────────────────────────────
 
 def _extract_json(raw: str) -> dict:
@@ -235,20 +143,18 @@ def _extract_json(raw: str) -> dict:
             return json.loads(match.group(0))
         except Exception:
             pass
-    logger.error("Gemini returned incomplete JSON: %s", raw[:500])
+    logger.error("AI returned incomplete JSON: %s", raw[:500])
     return {
         "summary":     "AI returned incomplete JSON",
         "severity":    "Medium",
-        "root_cause":  "Gemini response was truncated before JSON completed",
+        "root_cause":  "AI response was truncated before JSON completed",
         "remediation": "Retry analysis. Reduce log size or increase output token limits.",
         "confidence":  0,
     }
 
 
 def _validate_severity(value: str | None) -> str:
-    if value in {"Low", "Medium", "High", "Critical"}:
-        return value
-    return "Medium"
+    return value if value in {"Low", "Medium", "High", "Critical"} else "Medium"
 
 
 def _clamp(value) -> int:
@@ -269,11 +175,77 @@ def _truncate_logs(logs: str) -> str:
     return logs
 
 
-# ── Core Gemini analysis (used by both ADK tool and direct path) ──
+def _active_model_name() -> str:
+    """Return a human-readable model name for logging/responses."""
+    if getattr(settings, "USE_GROQ", False):
+        return getattr(settings, "GROQ_MODEL", "llama-3.3-70b-versatile")
+    return settings.GEMINI_MODEL
+
+
+# ── Groq inference ────────────────────────────────────────────────
+
+def _call_groq(system: str, user: str, max_tokens: int = 1200) -> str:
+    client = _get_groq_client()
+    model  = getattr(settings, "GROQ_MODEL", "llama-3.3-70b-versatile")
+    logger.info("Calling Groq model: %s", model)
+    resp = client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user",   "content": user},
+        ],
+        temperature=0,
+        max_tokens=max_tokens,
+        # Ask for JSON — Groq supports response_format for some models
+        response_format={"type": "json_object"},
+    )
+    return resp.choices[0].message.content or ""
+
+
+def _call_groq_array(system: str, user: str, max_tokens: int = 3000) -> str:
+    """Separate helper for array responses -- Groq json_object mode requires an object root,
+    so we wrap the instruction to return the array inside an object and unwrap it."""
+    client = _get_groq_client()
+    model  = getattr(settings, "GROQ_MODEL", "llama-3.3-70b-versatile")
+    logger.info("Calling Groq model (array): %s", model)
+    resp = client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": system + "\n\nWrap the array in: {\"forecasts\": [...]}"},
+            {"role": "user",   "content": user},
+        ],
+        temperature=0,
+        max_tokens=max_tokens,
+        response_format={"type": "json_object"},
+    )
+    return resp.choices[0].message.content or ""
+
+
+# ── Core analysis ─────────────────────────────────────────────────
+
+def _analyse_with_groq(logs: str, memory_context: str = "") -> dict:
+    logs = _truncate_logs(logs)
+    memory_section = (
+        f"\n\nHistorical context from past incidents:\n{memory_context}"
+        if memory_context else ""
+    )
+    user = f"Logs:\n\n{logs}{memory_section}"
+    raw  = _call_groq(_SYSTEM_PROMPT, user, max_tokens=1200)
+    parsed = _extract_json(raw)
+    return {
+        "summary":     str(parsed.get("summary",     "Unable to determine summary")),
+        "severity":    _validate_severity(parsed.get("severity")),
+        "root_cause":  str(parsed.get("root_cause",  "Unknown")),
+        "remediation": str(parsed.get("remediation", "No remediation steps provided")),
+        "confidence":  _clamp(parsed.get("confidence", 50)),
+        "model":       _active_model_name(),
+        "powered_by":  "Groq · llama-3.3-70b-versatile",
+    }
+
 
 def _analyse_with_gemini(logs: str, memory_context: str = "") -> dict:
-    model = _get_model()
-    logs = _truncate_logs(logs)
+    model = _get_gemini_model()
+    logs  = _truncate_logs(logs)
     memory_section = (
         f"\n\nHistorical context from past incidents:\n{memory_context}"
         if memory_context else ""
@@ -302,28 +274,44 @@ def _analyse_with_gemini(logs: str, memory_context: str = "") -> dict:
         "remediation": str(parsed.get("remediation", "No remediation steps provided")),
         "confidence":  _clamp(parsed.get("confidence", 50)),
         "model":       settings.GEMINI_MODEL,
+        "powered_by":  "Google Gemini",
     }
 
 
-def _forecast_with_gemini(incident_summary: str) -> list[dict]:
-    logger.info("========== FORECAST START ==========")
-    logger.info("FORECAST INPUT:\n%s", incident_summary)
+# ── Core forecast ─────────────────────────────────────────────────
 
+def _forecast_with_groq(incident_summary: str) -> list[dict]:
     if not incident_summary or incident_summary == "No historical incidents available.":
-        logger.warning("No incident history available")
         return []
+    raw    = _call_groq_array(_FORECAST_PROMPT, f"Historical incidents:\n\n{incident_summary[:3000]}", max_tokens=2000)
+    logger.info("Groq forecast raw: %s", raw[:300])
+    parsed_obj = _extract_json(raw)
+    parsed     = parsed_obj.get("forecasts", parsed_obj) if isinstance(parsed_obj, dict) else parsed_obj
+    if not isinstance(parsed, list):
+        parsed = [parsed]
+    return [
+        {
+            "project":            str(item.get("project",            "unknown")),
+            "risk_type":          str(item.get("risk_type",          "Unknown")),
+            "description":        str(item.get("description",        "")),
+            "confidence":         _clamp(item.get("confidence",       50)),
+            "timeframe":          str(item.get("timeframe",          "Next 7 days")),
+            "recommended_action": str(item.get("recommended_action", "")),
+        }
+        for item in parsed[:3]
+    ]
 
-    model = _get_model()
 
+def _forecast_with_gemini(incident_summary: str) -> list[dict]:
+    logger.info("========== FORECAST START (Gemini) ==========")
+    if not incident_summary or incident_summary == "No historical incidents available.":
+        return []
+    model  = _get_gemini_model()
     prompt = (
-        f"{_FORECAST_PROMPT}\n\n"
-        "Return EXACTLY 3 forecast objects.\n"
-        "Return a COMPLETE valid JSON array.\n"
-        "Do not stop early.\n"
-        "Do not truncate output.\n\n"
+        f"{_FORECAST_PROMPT}\n\nReturn EXACTLY 3 forecast objects.\n"
+        f"Return a COMPLETE valid JSON array.\n\n"
         f"Historical incidents:\n\n{incident_summary[:3000]}"
     )
-
     response = model.generate_content(
         prompt,
         generation_config=genai.GenerationConfig(
@@ -332,69 +320,60 @@ def _forecast_with_gemini(incident_summary: str) -> list[dict]:
             max_output_tokens=3000,
         ),
     )
-
     raw = getattr(response, "text", "") or ""
-
-    logger.info("FORECAST RAW RESPONSE:\n%s", raw)
-
     if not raw:
-        logger.warning("Gemini returned empty forecast response")
         return []
-
     raw = raw.strip()
-
     raw = re.sub(r"^```(?:json)?\s*", "", raw)
     raw = re.sub(r"\s*```$", "", raw)
-
     try:
         parsed = json.loads(raw)
-        logger.info("FORECAST JSON PARSED SUCCESSFULLY")
-
-    except Exception as exc:
-        logger.warning("JSON PARSE FAILED: %s", exc)
-
+    except Exception:
         match = re.search(r"\[[\s\S]*", raw)
-
         if not match:
-            logger.error("NO JSON ARRAY FOUND IN RESPONSE")
             return []
-
         recovered = match.group(0)
-
         if not recovered.rstrip().endswith("]"):
             recovered += "]"
-
         try:
             parsed = json.loads(recovered)
-            logger.info("FORECAST RECOVERY SUCCESS")
-
-        except Exception as exc2:
-            logger.error("FORECAST RECOVERY FAILED: %s", exc2)
+        except Exception:
             return []
-
-    logger.info("FORECAST PARSED OBJECT:\n%s", parsed)
-
     if not isinstance(parsed, list):
         parsed = [parsed]
-
-    result = [
+    return [
         {
-            "project": str(item.get("project", "unknown")),
-            "risk_type": str(item.get("risk_type", "Unknown")),
-            "description": str(item.get("description", "")),
-            "confidence": _clamp(item.get("confidence", 50)),
-            "timeframe": str(item.get("timeframe", "Next 7 days")),
+            "project":            str(item.get("project",            "unknown")),
+            "risk_type":          str(item.get("risk_type",          "Unknown")),
+            "description":        str(item.get("description",        "")),
+            "confidence":         _clamp(item.get("confidence",       50)),
+            "timeframe":          str(item.get("timeframe",          "Next 7 days")),
             "recommended_action": str(item.get("recommended_action", "")),
         }
         for item in parsed[:3]
     ]
 
-    logger.info("FINAL FORECAST RESULT:\n%s", result)
-    logger.info("========== FORECAST END ==========")
 
-    return result
+# ── Core auto-fix ─────────────────────────────────────────────────
+
+def _fix_with_groq(root_cause: str, remediation: str, current_file_content: str) -> dict:
+    user = (
+        f"Root cause: {root_cause}\n\n"
+        f"Remediation: {remediation}\n\n"
+        f"Current .gitlab-ci.yml:\n{current_file_content[:2000]}"
+    )
+    raw    = _call_groq(_FIX_PROMPT, user, max_tokens=1500)
+    parsed = _extract_json(raw)
+    return {
+        "filename":        str(parsed.get("filename",        ".gitlab-ci.yml")),
+        "fix_description": str(parsed.get("fix_description", "")),
+        "fixed_content":   str(parsed.get("fixed_content",   "")),
+        "commit_message":  str(parsed.get("commit_message",  "fix: OpsPilot auto-remediation")),
+    }
+
+
 def _fix_with_gemini(root_cause: str, remediation: str, current_file_content: str) -> dict:
-    model = _get_model()
+    model  = _get_gemini_model()
     prompt = (
         f"{_FIX_PROMPT}\n\n"
         f"Root cause: {root_cause}\n\n"
@@ -412,35 +391,94 @@ def _fix_with_gemini(root_cause: str, remediation: str, current_file_content: st
     raw = getattr(response, "text", "") or ""
     if not raw:
         return {}
-    raw = raw.strip()
-    raw = re.sub(r"^```(?:json)?\s*", "", raw)
-    raw = re.sub(r"\s*```$", "", raw)
+    raw    = raw.strip()
+    raw    = re.sub(r"^```(?:json)?\s*", "", raw)
+    raw    = re.sub(r"\s*```$", "", raw)
     parsed = json.loads(raw)
     return {
-        "filename":        str(parsed.get("filename", ".gitlab-ci.yml")),
+        "filename":        str(parsed.get("filename",        ".gitlab-ci.yml")),
         "fix_description": str(parsed.get("fix_description", "")),
-        "fixed_content":   str(parsed.get("fixed_content", "")),
-        "commit_message":  str(parsed.get("commit_message", "fix: OpsPilot auto-remediation")),
+        "fixed_content":   str(parsed.get("fixed_content",   "")),
+        "commit_message":  str(parsed.get("commit_message",  "fix: OpsPilot auto-remediation")),
     }
 
 
-# ── Public API — these are called by agent_service.py ─────────────
-# ADK agent is used when available; falls back to direct Gemini.
+# ── Router — picks Groq or Gemini based on USE_GROQ setting ──────
+
+def _use_groq() -> bool:
+    return bool(getattr(settings, "USE_GROQ", False))
+
+
+# ── ADK agent metadata (Gemini-only feature) ─────────────────────
+
+@lru_cache(maxsize=1)
+def _get_adk_agent():
+    if not ADK_AVAILABLE or _use_groq():
+        return None
+    try:
+        def analyse_ci_logs(logs: str, memory_context: str = "") -> dict:
+            return _analyse_with_gemini(logs, memory_context)
+        def predict_risk_forecast(incident_history: str) -> list:
+            return _forecast_with_gemini(incident_history)
+        def generate_ci_fix(root_cause: str, remediation: str, current_yml: str) -> dict:
+            return _fix_with_gemini(root_cause, remediation, current_yml)
+
+        agent = Agent(
+            model=settings.GEMINI_MODEL,
+            name="opspilot_devops_agent",
+            description="OpsPilot AI autonomous DevSecOps agent.",
+            instruction=(
+                "You are OpsPilot AI, an autonomous DevSecOps agent. "
+                "Detect failed GitLab pipelines, analyse logs, create issues, open MRs, notify."
+            ),
+            tools=[
+                FunctionTool(func=analyse_ci_logs),
+                FunctionTool(func=predict_risk_forecast),
+                FunctionTool(func=generate_ci_fix),
+            ],
+        )
+        logger.info("Google ADK agent initialised: opspilot_devops_agent")
+        return agent
+    except Exception as exc:
+        logger.warning("ADK agent init failed: %s", exc)
+        return None
+
+
+def get_adk_agent_info() -> dict:
+    if _use_groq():
+        return {
+            "framework":   "Groq (demo mode)",
+            "model":       getattr(settings, "GROQ_MODEL", "llama-3.3-70b-versatile"),
+            "status":      "active",
+            "description": "Running on Groq for demo -- zero quota exhaustion.",
+        }
+    agent = _get_adk_agent()
+    if agent:
+        return {
+            "framework":   "Google Agent Development Kit (ADK)",
+            "agent_name":  "opspilot_devops_agent",
+            "model":       settings.GEMINI_MODEL,
+            "tools":       ["analyse_ci_logs", "predict_risk_forecast", "generate_ci_fix"],
+            "status":      "active",
+        }
+    return {"framework": "Google Gemini Direct", "model": settings.GEMINI_MODEL, "status": "fallback"}
+
+
+# ── Public API (called by agent_service.py) ───────────────────────
 
 @retry(stop=stop_after_attempt(2), wait=wait_exponential(multiplier=1, min=1, max=4))
 def analyze_logs(logs: str, memory_context: str = "") -> dict:
-    """Analyse CI/CD logs via ADK agent or direct Gemini."""
+    """Analyse CI/CD logs. Uses Groq when USE_GROQ=true, else Gemini/ADK."""
     try:
-        # Try ADK agent first
+        if _use_groq():
+            logger.info("analyze_logs → Groq")
+            return _analyse_with_groq(logs, memory_context)
+
         agent = _get_adk_agent()
         if agent:
-            logger.info("Running log analysis via Google ADK agent")
-            result = _analyse_with_gemini(logs, memory_context)
-            result["powered_by"] = "Google ADK + Gemini 2.5 Flash"
-            return result
-
-        # Direct Gemini fallback
-        logger.info("Running log analysis via direct Gemini")
+            logger.info("analyze_logs → Google ADK + Gemini")
+        else:
+            logger.info("analyze_logs → Gemini direct")
         return _analyse_with_gemini(logs, memory_context)
 
     except Exception as exc:
@@ -450,21 +488,21 @@ def analyze_logs(logs: str, memory_context: str = "") -> dict:
             "severity":    "Medium",
             "root_cause":  str(exc),
             "remediation": (
-                "Retry the analysis. "
-                "If the issue persists, verify Gemini API credentials, "
+                "Retry the analysis. If the issue persists, check API credentials, "
                 "quota limits, and service availability."
             ),
             "confidence":  0,
-            "model":       settings.GEMINI_MODEL,
+            "model":       _active_model_name(),
         }
 
 
 def generate_forecast(incident_summary: str) -> list[dict]:
-    """Generate predictive risk forecasts via ADK agent or direct Gemini."""
+    """Generate predictive risk forecasts. Uses Groq when USE_GROQ=true."""
     try:
-        agent = _get_adk_agent()
-        if agent:
-            logger.info("Running forecast via Google ADK agent")
+        if _use_groq():
+            logger.info("generate_forecast → Groq")
+            return _forecast_with_groq(incident_summary)
+        logger.info("generate_forecast → Gemini")
         return _forecast_with_gemini(incident_summary)
     except Exception as exc:
         logger.warning("Forecast generation failed: %s", exc)
@@ -472,11 +510,12 @@ def generate_forecast(incident_summary: str) -> list[dict]:
 
 
 def generate_auto_fix(root_cause: str, remediation: str, current_file_content: str) -> dict:
-    """Generate auto-fix via ADK agent or direct Gemini."""
+    """Generate auto-fix. Uses Groq when USE_GROQ=true."""
     try:
-        agent = _get_adk_agent()
-        if agent:
-            logger.info("Running auto-fix generation via Google ADK agent")
+        if _use_groq():
+            logger.info("generate_auto_fix → Groq")
+            return _fix_with_groq(root_cause, remediation, current_file_content)
+        logger.info("generate_auto_fix → Gemini")
         return _fix_with_gemini(root_cause, remediation, current_file_content)
     except Exception as exc:
         logger.warning("Auto-fix generation failed: %s", exc)
