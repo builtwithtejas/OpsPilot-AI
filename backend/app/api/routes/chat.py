@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import require_api_key
 from app.database.dependencies import get_db
-from app.services.ai_service import _get_cached_model
+from app.services.ai_service import _get_model
 from app.core.config import settings
 from app.services.incident_service import get_incident_by_id
 from app.utils.logger import logger
@@ -73,7 +73,7 @@ async def chat_stream(request: ChatRequest, db: AsyncSession = Depends(get_db)):
     system_prompt = _build_system_prompt(incident)
 
     # C-6 FIX 1: Ensure genai is configured via the shared cache (no per-request reconfigure)
-    _get_cached_model(settings.GEMINI_API_KEY, settings.GEMINI_MODEL)
+    _get_model(settings.GEMINI_API_KEY, settings.GEMINI_MODEL)
 
     history = []
     messages = list(request.messages)
