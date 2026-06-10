@@ -1,7 +1,7 @@
 # backend/app/api/routes/incidents.py
 
 import asyncio
-
+from app.core.config import settings
 from fastapi import APIRouter, Depends, HTTPException, Query, status, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -96,6 +96,11 @@ async def remove_incident(incident_id: int, db: AsyncSession = Depends(get_db)):
     summary="Generate an AI auto-fix MR for the incident",
     status_code=status.HTTP_200_OK,
 )
+@router.post(
+    "/{incident_id}/autofix",
+    summary="Generate an AI auto-fix MR for the incident",
+    status_code=status.HTTP_200_OK,
+)
 async def autofix_incident(incident_id: int, db: AsyncSession = Depends(get_db)):
     inc = await get_incident_by_id(db, incident_id)
     if not inc:
@@ -125,23 +130,32 @@ async def autofix_incident(incident_id: int, db: AsyncSession = Depends(get_db))
             detail="AI fix generation failed or returned empty content. Try again.",
         )
 
-    # FIX: call the three real gitlab_service functions instead of the
-    # non-existent create_fix_mr_workflow():
-    #   1. get the latest commit SHA on main (needed to create the branch)
-    #   2. create_fix_branch  — opspilot/fix-incident-{id}
-    #   3. commit_fix         — writes the file onto that branch
-    #   4. create_fix_mr      — opens the MR
     try:
-        base_sha = await get_latest_commit_sha(str(inc.pipeline_id), ref="main")
+        # IMPORTANT:
+        # Use the actual GitLab project ID from settings.
+        # The incident pipeline_id is NOT a project ID.
+        project_id = settings.GITLAB_PROJECT_ID
+
+        logger.info(
+            "AUTOFIX: incident=%s pipeline_id=%s project_id=%s",
+            incident_id,
+            inc.pipeline_id,
+            project_id,
+        )
+
+        base_sha = await get_latest_commit_sha(
+            project_id,
+            ref="main",
+        )
 
         branch_name = await create_fix_branch(
-            project_id=str(inc.pipeline_id),
+            project_id=project_id,
             incident_id=incident_id,
             base_sha=base_sha,
         )
 
         await commit_fix(
-            project_id=str(inc.pipeline_id),
+            project_id=project_id,
             branch_name=branch_name,
             incident_id=incident_id,
             filename=fix["filename"],
@@ -150,7 +164,7 @@ async def autofix_incident(incident_id: int, db: AsyncSession = Depends(get_db))
         )
 
         mr = await create_fix_mr(
-            project_id=str(inc.pipeline_id),
+            project_id=project_id,
             branch_name=branch_name,
             incident_id=incident_id,
             title=f"[OpsPilot] Auto-fix for incident #{incident_id}",
@@ -165,8 +179,34 @@ async def autofix_incident(incident_id: int, db: AsyncSession = Depends(get_db))
         mr_url = mr["url"]
 
     except Exception as exc:
-        logger.warning("GitLab MR creation failed for incident #%d: %s", incident_id, exc)
+        logger.warning(
+            "GitLab MR creation failed for incident #%d: %s",
+            incident_id,
+            exc,
+        )
         raise HTTPException(
+            status_code=502,
+            detail=f"GitLab MR creation failed: {exc}",
+        )
+
+    await update_incident(
+        db,
+        incident_id,
+        IncidentUpdate(autofix_mr_url=mr_url),
+    )
+
+    await log_action(
+        db,
+        incident_id,
+        "autofix_created",
+        f"MR: {mr_url}",
+    )
+
+    return {
+        "mr_url": mr_url,
+        "already_exists": False,
+    }
+    raise HTTPException(
             status_code=502,
             detail=f"GitLab MR creation failed: {exc}",
         )
