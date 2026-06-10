@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     GOOGLE_CLOUD_PROJECT:  str = ""
     GOOGLE_CLOUD_LOCATION: str = "us-central1"
     GROQ_API_KEY: str = ""
-
+    GITLAB_PROJECT_ID: str = "82734152"
     # ── GitHub ──────────────────────────────────────────────────────
     GITHUB_TOKEN:          str = ""
     GITHUB_REPO:           str = "builtwithtejas/OpsPilot-AI"

@@ -25,6 +25,7 @@ except ImportError:
     logger.warning("Google ADK not installed — agent info will show fallback.")
 
 GROQ_MODEL = "llama-3.1-8b-instant"
+GROQ_MODEL_LARGE = "llama-3.3-70b-versatile"  # ADD THIS
 
 # ── Prompts ───────────────────────────────────────────────────────
 
@@ -308,7 +309,7 @@ def _fix_with_groq(root_cause: str, remediation: str, current_file_content: str)
         f"Current .gitlab-ci.yml:\n{current_file_content[:2000]}"
     )
     response = client.chat.completions.create(
-        model=GROQ_MODEL,
+       model=GROQ_MODEL_LARGE,   # needs stronger model for JSON fix generation
         messages=[
             {"role": "system", "content": _FIX_PROMPT},
             {"role": "user",   "content": prompt},
