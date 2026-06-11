@@ -1,6 +1,5 @@
 # backend/app/api/routes/chat.py
-# DEMO VERSION: Switched from Gemini to Groq (llama-3.1-8b-instant) for chat streaming.
-# Groq streams tokens extremely fast — looks great on camera.
+# PRODUCTION VERSION: Gemini 2.5 Flash streaming chat.
 
 from __future__ import annotations
 
@@ -10,17 +9,16 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import google.generativeai as genai
+
 from app.core.security import require_api_key
 from app.core.config import settings
 from app.database.dependencies import get_db
 from app.services.incident_service import get_incident_by_id
+from app.services.ai_service import _get_cached_model
 from app.utils.logger import logger
 
-from groq import Groq
-
 router = APIRouter(prefix="/chat", tags=["Chat"], dependencies=[Depends(require_api_key)])
-
-GROQ_MODEL = "llama-3.1-8b-instant"
 
 
 class ChatMessage(BaseModel):
@@ -49,26 +47,25 @@ def _build_system_prompt(incident) -> str:
 
 
 def _stream_chunks_sync(
-    messages: list[dict],
+    history: list[dict],
+    last_message: str,
     system_prompt: str,
 ) -> list[str]:
-    """Run Groq streaming in a thread pool and collect all chunks."""
-    client = Groq(api_key=settings.GROQ_API_KEY)
+    """Run Gemini streaming in a thread pool and collect all chunks."""
+    # Reuse the cached configured model — no per-request reconfigure
+    _get_cached_model(settings.GEMINI_API_KEY, settings.GEMINI_MODEL)
 
-    stream = client.chat.completions.create(
-        model=GROQ_MODEL,
-        messages=[{"role": "system", "content": system_prompt}] + messages,
-        temperature=0.3,
-        max_tokens=800,
-        stream=True,
+    chat_model = genai.GenerativeModel(
+        model_name=settings.GEMINI_MODEL,
+        system_instruction=system_prompt,
+        generation_config=genai.GenerationConfig(
+            temperature=0.3,
+            max_output_tokens=800,
+        ),
     )
-
-    chunks = []
-    for chunk in stream:
-        delta = chunk.choices[0].delta.content
-        if delta:
-            chunks.append(delta)
-    return chunks
+    chat = chat_model.start_chat(history=history)
+    response = chat.send_message(last_message, stream=True)
+    return [chunk.text for chunk in response if chunk.text]
 
 
 @router.post("/stream", summary="AI chat about an incident — streams token by token")
@@ -79,18 +76,22 @@ async def chat_stream(request: ChatRequest, db: AsyncSession = Depends(get_db)):
 
     system_prompt = _build_system_prompt(incident)
 
-    # Build message history for Groq
-    groq_messages = []
-    for msg in request.messages:
-        role = "user" if msg.role == "user" else "assistant"
-        groq_messages.append({"role": role, "content": msg.content})
+    # Build Gemini history format
+    history = []
+    messages = list(request.messages)
+    for msg in messages[:-1]:
+        role = "user" if msg.role == "user" else "model"
+        history.append({"role": role, "parts": [msg.content]})
+
+    last_message = messages[-1].content if messages else ""
 
     async def token_generator():
         try:
-            # Run blocking Groq stream in thread pool — never blocks event loop
+            # Run blocking Gemini stream in thread pool — never blocks event loop
             chunks = await asyncio.to_thread(
                 _stream_chunks_sync,
-                groq_messages,
+                history,
+                last_message,
                 system_prompt,
             )
             for chunk in chunks:

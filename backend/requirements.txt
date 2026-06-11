@@ -1,6 +1,4 @@
 # backend/requirements.txt
-# DEMO: Added groq package for Groq demo mode (set USE_GROQ=true in .env).
-# Remove groq line before final submission if not needed.
 
 fastapi==0.115.0
 uvicorn[standard]==0.30.0
@@ -34,6 +32,3 @@ google-adk
 alembic==1.13.3
 python-jose[cryptography]==3.3.0
 
-# DEMO: Groq — fast inference, no quota exhaustion, generous free tier
-# Set USE_GROQ=true in .env to activate. Flip to false for final submission.
-groq>=0.9.0

@@ -24,7 +24,6 @@ class Settings(BaseSettings):
     GEMINI_API_KEY:        str = ""
     GOOGLE_CLOUD_PROJECT:  str = ""
     GOOGLE_CLOUD_LOCATION: str = "us-central1"
-    GROQ_API_KEY: str = ""
     GITLAB_PROJECT_ID: str = "82734152"
     # ── GitHub ──────────────────────────────────────────────────────
     GITHUB_TOKEN:          str = ""
